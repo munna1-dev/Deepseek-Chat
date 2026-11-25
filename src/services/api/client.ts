@@ -83,18 +83,16 @@ export const request = async (url: string, init: RequestInit): Promise<Response>
   return response
 }
 
-const anthropicHeaders = (apiKey: string, beta: boolean): Record<string, string> => ({
-  // DeepSeek 兼容接口的鉴权方式，也可使用 Authorization: Bearer。
-  'x-api-key': apiKey,
-  // Files API 和通过 file_id 引用图片时必传；纯文本聊天无需携带。
+const anthropicHeaders = (_apiKey: string, beta: boolean): Record<string, string> => ({
+  // The server-side proxy injects the DeepSeek credential.
   ...(beta ? { 'anthropic-beta': FILES_BETA } : {}),
 })
 
 /** 用 GET /models 校验 API Key（不产生费用） */
-export const verifyApiKey = async (apiKey: string, signal?: AbortSignal): Promise<void> => {
+export const verifyApiKey = async (_apiKey: string, signal?: AbortSignal): Promise<void> => {
   await request(`${API_ORIGIN}/models`, {
     method: 'GET',
-    headers: { Authorization: `Bearer ${apiKey}` },
+    headers: {},
     signal,
   })
 }

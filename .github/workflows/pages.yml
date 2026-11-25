@@ -47,7 +47,11 @@ jobs:
         uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
 
       - name: Build
-        run: pnpm build
+        env:
+          DEEPSEEK_PROXY_URL: ${{ vars.DEEPSEEK_PROXY_URL }}
+        run: |
+          test -n "$DEEPSEEK_PROXY_URL"
+          pnpm build
 
       - name: Upload site
         uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
