@@ -1,3 +1,4 @@
+window.onerror = function(message, source, lineno, colno, error) { document.body.innerHTML = `<div style="color:red; padding:20px; font-size:20px;"><b>Error:</b> ${message}<br><br>Line: ${lineno}</div>`; };
 import { createRoot } from 'react-dom/client'
 import { App } from './app/App.js'
 import { setupTheme } from './app/theme.js'
