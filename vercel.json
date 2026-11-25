@@ -3,6 +3,8 @@
   "outputDirectory": "dist",
   "installCommand": "pnpm install --frozen-lockfile",
   "rewrites": [
-    { "source": "/anthropic/v1/messages", "destination": "/api/chat" }
+    { "source": "/anthropic/v1/messages", "destination": "/api/chat" },
+    { "source": "/v1/tools/image", "destination": "/api/image" },
+    { "source": "/(.*)", "destination": "/index.html" }
   ]
 }
