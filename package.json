@@ -44,5 +44,6 @@
     "oxlint": "1.63.0",
     "typescript": "5.9.3",
     "wrangler": "^4.168.0"
-  }
+  },
+  "packageManager": "pnpm@10.34.9"
 }
