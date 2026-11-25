@@ -1,3 +1,4 @@
+import { API_ORIGIN } from "../../services/api/client.js";
 import React, { useState } from 'react';
 
 export const ImageGenerator = () => {
@@ -9,7 +10,7 @@ export const ImageGenerator = () => {
     if (!prompt.trim()) return;
     setLoading(true);
     try {
-      const res = await fetch(`${window.__API_ORIGIN__}/v1/tools/image`, {
+      const res = await fetch(`${API_ORIGIN}/v1/tools/image`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ prompt })
