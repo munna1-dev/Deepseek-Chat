@@ -5,6 +5,7 @@
   "rewrites": [
     { "source": "/anthropic/v1/messages", "destination": "/api/chat" },
     { "source": "/v1/tools/image", "destination": "/api/image" },
+    { "source": "/static/(.*)", "destination": "/static/$1" },
     { "source": "/(.*)", "destination": "/index.html" }
   ]
 }
