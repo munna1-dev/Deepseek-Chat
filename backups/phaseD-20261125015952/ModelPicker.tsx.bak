@@ -1,0 +1,65 @@
+import { useEffect, useMemo, useState } from 'react'
+import { setAllowPaidProviders, setModel, useSettings } from '../../services/settings.js'
+import {
+  flattenModels,
+  loadProviders,
+  resolveModel,
+  type ModelOption,
+} from '../../services/providers.js'
+import { Menu, type MenuOption } from '../base/Menu.js'
+import { IconButton } from '../base/IconButton.js'
+import { IconGlobeLanguageOutline14 } from '../base/icons.js'
+
+const tierBadge = (tier: 'free' | 'paid') => (tier === 'free' ? '🟢' : '🔴')
+const shorten = (label: string, max = 22): string =>
+  label.length <= max ? label : label.slice(0, max - 1) + '…'
+
+export const ModelPicker = () => {
+  const selected = useSettings((state) => state.model)
+  const allowPaid = useSettings((state) => state.allowPaidProviders)
+  const [models, setModels] = useState<ModelOption[]>([])
+
+  useEffect(() => {
+    let cancelled = false
+    void loadProviders().then((reg) => {
+      if (!cancelled) setModels(flattenModels(reg))
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const currentId = resolveModel(selected ?? undefined)
+  const current = models.find((m) => m.id === currentId)
+  const label = current
+    ? `${tierBadge(current.tier)} ${shorten(current.label)}`
+    : '🟢 Gemini Flash Lite'
+
+  // Only expose options the user is allowed to pick.
+  // A disabled/tooltip variant of "blocked paid model" gets its own row that, when
+  // clicked, offers to enable paid providers — keeps the affordance visible.
+  const options = useMemo<MenuOption[]>(() => {
+    const rows: MenuOption[] = models.map((m) => {
+      const blocked = m.tier === 'paid' && !allowPaid
+      return {
+        label: `${tierBadge(m.tier)} ${m.label}${blocked ? ' (enable paid)' : ''}`,
+        onSelect: () => {
+          if (blocked) {
+            setAllowPaidProviders(true)
+            return
+          }
+          setModel(m.id)
+        },
+      }
+    })
+    return rows
+  }, [models, allowPaid])
+
+  return (
+    <Menu options={options}>
+      {({ toggle }) => (
+        <IconButton icon={<IconGlobeLanguageOutline14 />} tooltip={label} onClick={toggle} />
+      )}
+    </Menu>
+  )
+}

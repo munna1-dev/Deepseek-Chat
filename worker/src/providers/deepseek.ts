@@ -10,22 +10,13 @@ export const forwardToDeepSeek = async (
     return json('DeepSeek server credential is not configured.', 503, env.ALLOWED_ORIGIN)
   }
 
-  // Gemini Files API IDs cannot be used by DeepSeek.
-  const serialized = JSON.stringify(body.messages)
-  if (serialized.includes('"file_id"')) {
-    return json(
-      'Attachments currently require Gemini. Select Gemini to use uploaded files.',
-      415,
-      env.ALLOWED_ORIGIN
-    )
-  }
-
   const headers = new Headers(request.headers)
   headers.delete('Authorization')
   headers.delete('x-api-key')
   headers.delete('Host')
   headers.delete('Cookie')
   headers.delete('x-allow-paid') // don't forward the internal opt-in marker upstream
+  headers.delete('anthropic-beta') // strip browser beta flags; deepseek handles parsing natively
   headers.set('Authorization', `Bearer ${env.DEEPSEEK_API_KEY}`)
   headers.set('x-api-key', env.DEEPSEEK_API_KEY)
   headers.set('Content-Type', 'application/json')

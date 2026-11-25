@@ -288,6 +288,7 @@ const Input = ({ sessionId }: { sessionId: string | null }) => {
         </div>
       </div>
       {dragging ? <DragMask /> : null}
-    </div>
+      <ImageGenerator />
+</div>
   )
 }

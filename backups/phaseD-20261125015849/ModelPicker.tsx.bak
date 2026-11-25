@@ -1,0 +1,139 @@
+import { useEffect, useState } from 'react'
+import { setAllowPaidProviders, setModel, useSettings } from '../../services/settings.js'
+import {
+  flattenModels,
+  loadProviders,
+  resolveModel,
+  type ModelOption,
+} from '../../services/providers.js'
+import { Menu } from '../base/Menu.js'
+import { IconButton } from '../base/IconButton.js'
+import { IconGlobeLanguageOutline14 } from '../base/icons.js'
+
+const tierBadge = (tier: 'free' | 'paid') => (tier === 'free' ? '🟢' : '🔴')
+
+const shorten = (label: string, max = 22): string =>
+  label.length <= max ? label : label.slice(0, max - 1) + '…'
+
+/**
+ * Model chooser. Reads tiers from /v1/providers (Worker authoritative).
+ * Paid rows are disabled unless "Allow paid providers" is on.
+ */
+export const ModelPicker = () => {
+  const selected = useSettings((state) => state.model)
+  const allowPaid = useSettings((state) => state.allowPaidProviders)
+  const [models, setModels] = useState<ModelOption[]>([])
+  const [opened, setOpened] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+    void loadProviders().then((reg) => {
+      if (!cancelled) setModels(flattenModels(reg))
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const currentId = resolveModel(selected ?? undefined)
+  const current = models.find((m) => m.id === currentId)
+  const label = current ? `${tierBadge(current.tier)} ${shorten(current.label)}` : '🟢 Gemini Flash Lite'
+
+  return (
+    <Menu>
+      {({ toggle }) => (
+        <>
+          <IconButton
+            icon={<IconGlobeLanguageOutline14 />}
+            tooltip={label}
+            onClick={() => {
+              setOpened((v) => !v)
+              toggle()
+            }}
+          />
+          {opened ? (
+            <div
+              role="menu"
+              style={{
+                position: 'absolute',
+                bottom: '100%',
+                left: 0,
+                minWidth: 280,
+                marginBottom: 6,
+                background: 'var(--menu-bg, #fff)',
+                border: '1px solid rgba(0,0,0,0.1)',
+                borderRadius: 8,
+                boxShadow: '0 8px 24px rgba(0,0,0,0.12)',
+                padding: 4,
+                zIndex: 50,
+              }}
+              onMouseLeave={() => setOpened(false)}
+            >
+              {models.length === 0 ? (
+                <div style={{ padding: 12, opacity: 0.6, fontSize: 12 }}>Loading models…</div>
+              ) : null}
+              {models.map((m) => {
+                const blocked = m.tier === 'paid' && !allowPaid
+                return (
+                  <button
+                    key={m.id}
+                    type="button"
+                    disabled={blocked}
+                    onClick={() => {
+                      if (blocked) return
+                      setModel(m.id)
+                      setOpened(false)
+                    }}
+                    title={blocked ? 'Enable "Allow paid providers" in Settings to use this model' : ''}
+                    style={{
+                      display: 'block',
+                      width: '100%',
+                      textAlign: 'left',
+                      padding: '8px 12px',
+                      borderRadius: 6,
+                      border: 'none',
+                      opacity: blocked ? 0.4 : 1,
+                      cursor: blocked ? 'not-allowed' : 'pointer',
+                      background: m.id === currentId ? 'rgba(0,0,0,0.06)' : 'transparent',
+                    }}
+                  >
+                    <div>
+                      {tierBadge(m.tier)} <strong>{m.label}</strong>
+                    </div>
+                    <div style={{ fontSize: 11, opacity: 0.6 }}>
+                      {m.providerLabel} · {m.id}
+                    </div>
+                  </button>
+                )
+              })}
+              {!allowPaid && models.some((m) => m.tier === 'paid') ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAllowPaidProviders(true)
+                    setOpened(false)
+                  }}
+                  style={{
+                    display: 'block',
+                    width: '100%',
+                    textAlign: 'left',
+                    padding: '8px 12px',
+                    marginTop: 4,
+                    borderTop: '1px solid rgba(0,0,0,0.1)',
+                    background: 'transparent',
+                    border: 'none',
+                    color: '#a33',
+                    fontSize: 12,
+                    cursor: 'pointer',
+                  }}
+                >
+                  Enable paid providers in Settings…
+                </button>
+              ) : null}
+            </div>
+          ) : null}
+        </>
+      )}
+    </Menu>
+  )
+}

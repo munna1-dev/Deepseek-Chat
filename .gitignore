@@ -9,3 +9,7 @@ build/
 .env.*
 !.env.example
 tmp/
+.vercel
+.env*
+.env.local
+.dev.vars

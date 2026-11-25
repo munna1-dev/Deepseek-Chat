@@ -23,6 +23,11 @@ export const MODEL_TIERS: Record<string, ModelTier> = {
 export const tierOf = (model: string): ModelTier | 'unknown' =>
   MODEL_TIERS[model] ?? 'unknown'
 
+export const providerOf = (model: string): string | undefined =>
+  PROVIDERS.find((provider) =>
+    provider.models.some((entry) => entry.id === model)
+  )?.id
+
 /** Full provider catalogue. Source of truth for tiers and labels. */
 export const PROVIDERS: ProviderEntry[] = [
   {

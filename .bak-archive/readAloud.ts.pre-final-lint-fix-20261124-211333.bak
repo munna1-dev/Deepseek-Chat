@@ -1,0 +1,139 @@
+import { create } from 'zustand'
+import type { TranslationMessage } from '../../i18n/index.js'
+import { useSettings } from '../settings.js'
+
+export type ReadAloudStatus = 'idle' | 'loading' | 'playing'
+
+type ReadAloudState = {
+  messageId: string | null
+  status: ReadAloudStatus
+}
+
+export const useReadAloud = create<ReadAloudState>(() => ({
+  messageId: null,
+  status: 'idle',
+}))
+
+let activeToken = 0
+
+const setIdle = (token: number) => {
+  if (token !== activeToken) { return }
+  useReadAloud.setState({ messageId: null, status: 'idle' })
+}
+
+export const stopReadAloud = () => {
+  activeToken++
+  if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+    window.speechSynthesis.cancel()
+  }
+  useReadAloud.setState({ messageId: null, status: 'idle' })
+}
+
+export const describeReadAloudError = (
+  error: unknown
+): TranslationMessage | string => {
+  return error instanceof Error
+    ? error.message
+    : 'Device speech is unavailable. Check your browser speech settings.'
+}
+
+/** Split long responses into smaller utterances for better mobile browser compatibility. */
+const splitText = (text: string): string[] => {
+  const normalized = text.replace(/\s+/g, ' ').trim()
+  if (!normalized) { return [] }
+
+  const chunks: string[] = []
+  let remaining = normalized
+
+  while (remaining.length > 1800) {
+    let cut = remaining.lastIndexOf(' ', 1800)
+    if (cut < 900) { cut = 1800 }
+    chunks.push(remaining.slice(0, cut).trim())
+    remaining = remaining.slice(cut).trim()
+  }
+
+  if (remaining) { chunks.push(remaining) }
+  return chunks
+}
+
+/**
+ * Uses the device/browser speech engine. No external TTS API or API key is required.
+ * Must be called directly from the user's click handler.
+ */
+export const toggleReadAloud = (
+  messageId: string,
+  text: string,
+  onError: (error: unknown) => void
+) => {
+  const current = useReadAloud.getState().messageId
+  stopReadAloud()
+
+  if (current === messageId) { return }
+
+  if (
+    typeof window === 'undefined' ||
+    !('speechSynthesis' in window) ||
+    typeof SpeechSynthesisUtterance === 'undefined'
+  ) {
+    onError(new Error('This browser does not support device speech.'))
+    return
+  }
+
+  const chunks = splitText(text)
+  if (!chunks.length) {
+    onError(new Error('There is no text to read.'))
+    return
+  }
+
+  const token = activeToken
+  const { ttsVoice } = useSettings.getState()
+  const language =
+    document.documentElement.lang ||
+    (typeof navigator !== 'undefined' ? navigator.language : 'en-US')
+
+  useReadAloud.setState({ messageId, status: 'loading' })
+
+  let index = 0
+
+  const speakNext = () => {
+    if (token !== activeToken) return
+
+    if (index >= chunks.length) {
+      setIdle(token)
+      return
+    }
+
+    const utterance = new SpeechSynthesisUtterance(chunks[index++])
+    utterance.lang = language
+    utterance.rate = 1
+    // Retain the old voice preference as a subtle pitch preference.
+    utterance.pitch = ttsVoice === 'tide' ? 0.92 : 1.06
+
+    const voices = window.speechSynthesis.getVoices()
+    const languagePrefix = language.toLowerCase().split('-')[0]
+    const preferredVoice = voices.find(
+      (voice) => voice.lang.toLowerCase().startsWith(languagePrefix)
+    )
+    if (preferredVoice) { utterance.voice = preferredVoice }
+
+    utterance.onstart = () => {
+      if (token === activeToken) {
+        useReadAloud.setState({ status: 'playing' })
+      }
+    }
+
+    utterance.onend = speakNext
+
+    utterance.onerror = (event) => {
+      if (token !== activeToken || event.error === 'canceled' || event.error === 'interrupted') {
+        return
+      }
+      setIdle(token)
+      onError(new Error(`Device speech failed: ${event.error}`))
+    }
+
+    window.speechSynthesis.speak(utterance)
+  }
+
+  speakNext()
+}

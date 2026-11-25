@@ -1,5 +1,5 @@
 import { corsHeaders, json, jsonOk } from './lib/http.js'
-import { PROVIDERS, tierOf } from './registry.js'
+import { PROVIDERS, providerOf, tierOf } from './registry.js'
 import {
   bytesToBase64,
   convertMessages,
@@ -141,6 +141,27 @@ export default {
       return json('Server text-to-speech is disabled. Read aloud uses your device speech engine.', 501, env.ALLOWED_ORIGIN)
     }
 
+
+    // ---- Image Generation ----
+    if (url.pathname === "/v1/tools/image" && request.method === "POST") {
+      try {
+        const body = await request.json()
+        const imageApiRes = await fetch(`https://deepseek-chat.vercel.app/api/image`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body)
+        })
+        
+        const data = await imageApiRes.json()
+        return new Response(JSON.stringify(data), {
+          status: imageApiRes.status,
+          headers: { ...corsHeaders(env.ALLOWED_ORIGIN), "Content-Type": "application/json" }
+        })
+      } catch (error) {
+        return json("Image generation failed.", 502, env.ALLOWED_ORIGIN)
+      }
+    }
+
     // ---- Chat ----
     if (url.pathname !== '/anthropic/v1/messages' || request.method !== 'POST') {
       return json('Endpoint or method not allowed', 404, env.ALLOWED_ORIGIN)
@@ -157,9 +178,16 @@ export default {
     }
 
     const selectedModel = typeof body.model === 'string' ? body.model : DEFAULT_MODEL
+    const selectedTier = tierOf(selectedModel)
+    const selectedProvider = providerOf(selectedModel)
+
+    // Reject unregistered models before making any upstream request.
+    if (selectedTier === 'unknown' || !selectedProvider) {
+      return json('Unknown or unsupported model.', 400, env.ALLOWED_ORIGIN)
+    }
 
     // Cost gate — must precede any upstream fetch.
-    if (tierOf(selectedModel) === 'paid' && request.headers.get('x-allow-paid') !== '1') {
+    if (selectedTier === 'paid' && request.headers.get('x-allow-paid') !== '1') {
       return json(
         `Model ${selectedModel} is a paid provider. Enable "Allow paid providers" in Settings.`,
         422,
@@ -167,8 +195,12 @@ export default {
       )
     }
 
-    if (!selectedModel.startsWith('gemini-')) {
+    if (selectedProvider === 'deepseek') {
       return await forwardToDeepSeek(request, body, env)
+    }
+
+    if (selectedProvider !== 'gemini') {
+      return json('Unsupported provider.', 400, env.ALLOWED_ORIGIN)
     }
 
     if (!env.GEMINI_API_KEY) return json('Gemini server credential is not configured.', 503, env.ALLOWED_ORIGIN)
@@ -184,7 +216,7 @@ export default {
       return json('No supported text messages were provided.', 400, env.ALLOWED_ORIGIN)
     }
 
-    const model = env.GEMINI_MODEL || DEFAULT_MODEL
+    const model = selectedModel
     const payload: Record<string, unknown> = { contents }
     if (typeof body.system === 'string' && body.system.trim()) {
       payload.systemInstruction = { parts: [{ text: body.system }] }
