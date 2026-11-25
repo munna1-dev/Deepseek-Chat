@@ -87,7 +87,7 @@ export const onUploadNotice = (listener: NoticeListener) => {
 }
 
 /** 删除已上传文件的接口文档 */
-const DELETE_FILE_DOCS_URL = 'https://api-docs.deepseek.com/api/delete-file'
+const DELETE_FILE_DOCS_URL = 'https://ai.google.dev/gemini-api/docs/files'
 
 /** 文件数或存储空间达到上限：附件上只放得下「上传失败」，原因另用 toast 说明并引导删除旧文件 */
 export const describeUploadQuota = (error: unknown): LinkedMessage | undefined => {

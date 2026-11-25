@@ -178,4 +178,10 @@ export const en = {
   latestReminderLanguage: 'English',
   settingsLocaleZhCN: 'Simplified Chinese',
   settingsLocaleEnUS: 'English',
+  'settingsAllowPaidProviders': 'Allow paid providers',
+  'settingsAllowPaidProvidersOn': 'Enabled — paid models may be called',
+  'settingsAllowPaidProvidersOff': 'Disabled — free models only',
+  'modelPickerAria': 'Select model',
+  'modelPickerEnablePaid': 'Enable paid providers in Settings…',
+  'modelPickerBlockedTip': 'Enable "Allow paid providers" in Settings to use this model',
 } satisfies Record<keyof typeof zh, string>

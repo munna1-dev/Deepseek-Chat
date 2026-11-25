@@ -169,4 +169,10 @@ export const zh = {
   latestReminderLanguage: '中文',
   settingsLocaleZhCN: '简体中文',
   settingsLocaleEnUS: 'English',
+  'settingsAllowPaidProviders': '允许付费模型',
+  'settingsAllowPaidProvidersOn': '已启用 — 可调用付费模型',
+  'settingsAllowPaidProvidersOff': '已关闭 — 仅使用免费模型',
+  'modelPickerAria': '选择模型',
+  'modelPickerEnablePaid': '在设置中启用付费模型…',
+  'modelPickerBlockedTip': '启用"允许付费模型"后可使用',
 } as const

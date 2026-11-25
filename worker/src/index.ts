@@ -1,40 +1,23 @@
-interface Env {
-  DEEPSEEK_API_KEY: string
+import { corsHeaders, json, jsonOk } from './lib/http.js'
+import { PROVIDERS, tierOf } from './registry.js'
+import {
+  bytesToBase64,
+  convertMessages,
+  deleteGeminiFile,
+  streamGeminiAsAnthropic,
+  uploadGeminiFile,
+} from './providers/gemini.js'
+import { forwardToDeepSeek } from './providers/deepseek.js'
+
+export interface Env {
+  GEMINI_API_KEY?: string
+  GEMINI_MODEL?: string
+  DEEPSEEK_API_KEY?: string
   ALLOWED_ORIGIN: string
 }
 
-const UPSTREAM = 'https://api.deepseek.com'
-
-const corsHeaders = (origin: string) => ({
-  'Access-Control-Allow-Origin': origin,
-  'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
-  'Access-Control-Allow-Headers':
-    'Accept, Content-Type, Anthropic-Beta, X-Requested-With',
-  'Access-Control-Max-Age': '86400',
-  'Vary': 'Origin',
-})
-
-function json(message: string, status: number, origin: string) {
-  return new Response(JSON.stringify({ error: { message } }), {
-    status,
-    headers: {
-      ...corsHeaders(origin),
-      'Content-Type': 'application/json',
-      'Cache-Control': 'no-store',
-    },
-  })
-}
-
-function allowedRoute(path: string, method: string) {
-  if (path === '/models') return method === 'GET'
-  if (path === '/anthropic/v1/messages') return method === 'POST'
-  if (path === '/anthropic/v1/files') return method === 'POST'
-  if (/^\/anthropic\/v1\/files\/[^/]+$/.test(path)) return method === 'DELETE'
-  if (path === '/v1/tools/asr' || path === '/v1/tools/tts') {
-    return method === 'POST'
-  }
-  return false
-}
+const DEFAULT_MODEL = 'gemini-flash-lite-latest'
+const FILE_API = 'https://generativelanguage.googleapis.com'
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
@@ -44,59 +27,200 @@ export default {
     if (origin && origin !== env.ALLOWED_ORIGIN) {
       return json('Origin not allowed', 403, env.ALLOWED_ORIGIN)
     }
-
     if (request.method === 'OPTIONS') {
-      return new Response(null, {
-        status: 204,
-        headers: corsHeaders(env.ALLOWED_ORIGIN),
+      return new Response(null, { status: 204, headers: corsHeaders(env.ALLOWED_ORIGIN) })
+    }
+
+    // ---- /v1/providers ----
+    if (url.pathname === '/v1/providers' && request.method === 'GET') {
+      return jsonOk({ providers: PROVIDERS }, env.ALLOWED_ORIGIN)
+    }
+
+    // ---- /models (Gemini discovery) ----
+    if (url.pathname === '/models' && request.method === 'GET') {
+      if (!env.GEMINI_API_KEY) return json('Gemini server credential is not configured.', 503, env.ALLOWED_ORIGIN)
+      const upstream = await fetch(`${FILE_API}/v1beta/models`, {
+        headers: { 'x-goog-api-key': env.GEMINI_API_KEY },
       })
+      if (!upstream.ok) {
+        return json(`Gemini model discovery failed (HTTP ${upstream.status}).`, upstream.status, env.ALLOWED_ORIGIN)
+      }
+      const catalog = (await upstream.json()) as {
+        models?: Array<{ name?: string; supportedGenerationMethods?: string[] }>
+      }
+      const data = (catalog.models ?? [])
+        .filter(
+          (m) =>
+            typeof m.name === 'string' &&
+            m.supportedGenerationMethods?.includes('generateContent')
+        )
+        .map((m) => ({ id: m.name!.replace(/^models\//, ''), object: 'model' }))
+      return jsonOk({ data }, env.ALLOWED_ORIGIN)
     }
 
-    if (!env.DEEPSEEK_API_KEY) {
-      return json('Server API credential is not configured', 503, env.ALLOWED_ORIGIN)
+    // ---- Files ----
+    if (url.pathname === '/anthropic/v1/files' && request.method === 'POST') {
+      try {
+        const form = await request.formData()
+        const file = form.get('file')
+        if (!(file instanceof File)) return json('A file is required.', 400, env.ALLOWED_ORIGIN)
+        return await uploadGeminiFile(file, env)
+      } catch (error) {
+        return json(error instanceof Error ? error.message : 'Gemini upload failed.', 502, env.ALLOWED_ORIGIN)
+      }
     }
 
-    if (!allowedRoute(url.pathname, request.method)) {
+    if (url.pathname.startsWith('/anthropic/v1/files/') && request.method === 'DELETE') {
+      const encodedId = url.pathname.slice('/anthropic/v1/files/'.length)
+      let fileId = ''
+      try {
+        fileId = decodeURIComponent(encodedId)
+      } catch {
+        return json('Invalid file ID.', 400, env.ALLOWED_ORIGIN)
+      }
+      return await deleteGeminiFile(fileId, env)
+    }
+
+    // ---- ASR ----
+    if (url.pathname === '/v1/tools/asr' && request.method === 'POST') {
+      if (!env.GEMINI_API_KEY) return json('Gemini server credential is not configured.', 503, env.ALLOWED_ORIGIN)
+      try {
+        const form = await request.formData()
+        const file = form.get('file')
+        if (!(file instanceof File)) return json('An audio file is required.', 400, env.ALLOWED_ORIGIN)
+        if (file.size === 0 || file.size > 8 * 1024 * 1024) {
+          return json('Audio must be between 1 byte and 8 MiB.', 413, env.ALLOWED_ORIGIN)
+        }
+        const audioBytes = new Uint8Array(await file.arrayBuffer())
+        const model = env.GEMINI_MODEL || DEFAULT_MODEL
+        const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`
+        const upstream = await fetch(endpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'x-goog-api-key': env.GEMINI_API_KEY },
+          body: JSON.stringify({
+            contents: [
+              {
+                role: 'user',
+                parts: [
+                  { inlineData: { mimeType: file.type || 'audio/wav', data: bytesToBase64(audioBytes) } },
+                  { text: 'Transcribe the spoken audio accurately. Return only the transcription, without commentary.' },
+                ],
+              },
+            ],
+            generationConfig: { temperature: 0 },
+          }),
+          signal: request.signal,
+          redirect: 'manual',
+        })
+        if (!upstream.ok) {
+          const details = await upstream.text()
+          let message = `Gemini transcription failed with HTTP ${upstream.status}.`
+          try {
+            const parsed = JSON.parse(details) as { error?: { message?: string } }
+            if (parsed.error?.message) message = parsed.error.message
+          } catch {
+            /* keep status-based */
+          }
+          return json(message, upstream.status, env.ALLOWED_ORIGIN)
+        }
+        const result = (await upstream.json()) as {
+          candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>
+        }
+        const text = (result.candidates?.[0]?.content?.parts ?? [])
+          .map((p) => p.text ?? '')
+          .join('')
+          .trim()
+        return jsonOk({ text }, env.ALLOWED_ORIGIN)
+      } catch (error) {
+        if (request.signal.aborted) return json('Request was cancelled.', 499, env.ALLOWED_ORIGIN)
+        return json(error instanceof Error ? error.message : 'Unable to transcribe audio.', 502, env.ALLOWED_ORIGIN)
+      }
+    }
+
+    if (url.pathname === '/v1/tools/tts') {
+      return json('Server text-to-speech is disabled. Read aloud uses your device speech engine.', 501, env.ALLOWED_ORIGIN)
+    }
+
+    // ---- Chat ----
+    if (url.pathname !== '/anthropic/v1/messages' || request.method !== 'POST') {
       return json('Endpoint or method not allowed', 404, env.ALLOWED_ORIGIN)
     }
 
-    const headers = new Headers(request.headers)
-
-    // Never trust or forward credentials supplied by the browser.
-    headers.delete('Authorization')
-    headers.delete('x-api-key')
-    headers.delete('Host')
-    headers.delete('Cookie')
-
-    headers.set('Authorization', `Bearer ${env.DEEPSEEK_API_KEY}`)
-    headers.set('x-api-key', env.DEEPSEEK_API_KEY)
-
-    const upstreamUrl = `${UPSTREAM}${url.pathname}${url.search}`
-
+    let body: Record<string, unknown>
     try {
-      const upstream = await fetch(upstreamUrl, {
-        method: request.method,
-        headers,
-        body: request.method === 'GET' || request.method === 'DELETE'
-          ? undefined
-          : request.body,
+      body = (await request.json()) as Record<string, unknown>
+    } catch {
+      return json('Invalid JSON request body.', 400, env.ALLOWED_ORIGIN)
+    }
+    if (!Array.isArray(body.messages)) {
+      return json('A messages array is required.', 400, env.ALLOWED_ORIGIN)
+    }
+
+    const selectedModel = typeof body.model === 'string' ? body.model : DEFAULT_MODEL
+
+    // Cost gate — must precede any upstream fetch.
+    if (tierOf(selectedModel) === 'paid' && request.headers.get('x-allow-paid') !== '1') {
+      return json(
+        `Model ${selectedModel} is a paid provider. Enable "Allow paid providers" in Settings.`,
+        422,
+        env.ALLOWED_ORIGIN
+      )
+    }
+
+    if (!selectedModel.startsWith('gemini-')) {
+      return await forwardToDeepSeek(request, body, env)
+    }
+
+    if (!env.GEMINI_API_KEY) return json('Gemini server credential is not configured.', 503, env.ALLOWED_ORIGIN)
+
+    let contents: Awaited<ReturnType<typeof convertMessages>>
+    try {
+      contents = await convertMessages(body.messages, env)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to convert chat history.'
+      return json(message, /invalid file_id/i.test(message) ? 400 : 501, env.ALLOWED_ORIGIN)
+    }
+    if (contents.length === 0) {
+      return json('No supported text messages were provided.', 400, env.ALLOWED_ORIGIN)
+    }
+
+    const model = env.GEMINI_MODEL || DEFAULT_MODEL
+    const payload: Record<string, unknown> = { contents }
+    if (typeof body.system === 'string' && body.system.trim()) {
+      payload.systemInstruction = { parts: [{ text: body.system }] }
+    }
+    const tools = Array.isArray(body.tools) ? body.tools : []
+    const searchEnabled = tools.some((t) => {
+      if (!t || typeof t !== 'object') return false
+      return (t as Record<string, unknown>).type === 'deepseek_web_search'
+    })
+    if (searchEnabled) payload.tools = [{ google_search: {} }]
+
+    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:streamGenerateContent?alt=sse`
+    try {
+      const upstream = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-goog-api-key': env.GEMINI_API_KEY },
+        body: JSON.stringify(payload),
+        signal: request.signal,
         redirect: 'manual',
       })
-
-      const responseHeaders = new Headers(upstream.headers)
-      for (const [key, value] of Object.entries(corsHeaders(env.ALLOWED_ORIGIN))) {
-        responseHeaders.set(key, value)
+      if (!upstream.ok) {
+        const details = await upstream.text()
+        let message = `Gemini API returned HTTP ${upstream.status}.`
+        try {
+          const parsed = JSON.parse(details) as { error?: { message?: string } }
+          if (parsed.error?.message) message = parsed.error.message
+        } catch {
+          /* keep status-based */
+        }
+        return json(message, upstream.status, env.ALLOWED_ORIGIN)
       }
-      responseHeaders.set('Cache-Control', 'no-store')
-
-      // Preserve the upstream stream for SSE and audio responses.
-      return new Response(upstream.body, {
-        status: upstream.status,
-        statusText: upstream.statusText,
-        headers: responseHeaders,
-      })
-    } catch {
-      return json('Unable to reach the DeepSeek API', 502, env.ALLOWED_ORIGIN)
+      if (!upstream.body) return json('Gemini returned an empty response.', 502, env.ALLOWED_ORIGIN)
+      return streamGeminiAsAnthropic(upstream.body, model, env.ALLOWED_ORIGIN)
+    } catch (error) {
+      if (request.signal.aborted) return json('Request was cancelled.', 499, env.ALLOWED_ORIGIN)
+      return json(error instanceof Error ? error.message : 'Unable to reach Gemini.', 502, env.ALLOWED_ORIGIN)
     }
   },
 }

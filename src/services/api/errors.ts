@@ -61,7 +61,7 @@ export type FileErrorCode = 'fileIdMissing' | 'fileDataMissing' | 'invalidFileId
 const FILE_ERROR_PATTERNS: ReadonlyArray<readonly [FileErrorCode, RegExp]> = [
   ['fileIdMissing', /file_ids do not exist or are not created under your account/i],
   ['fileDataMissing', /file data not found for file_id/i],
-  ['invalidFileId', /\.source\.file_id: invalid file_id/i],
+  ['invalidFileId', /(?:\.source\.file_id: )?invalid file_id/i],
 ]
 
 /**
@@ -77,7 +77,7 @@ export const getFileErrorCode = (error: unknown): FileErrorCode | null => {
 
 /** 从报错文案里取出服务端 file_id，用于只重置真正失效的附件 */
 export const extractFileIds = (message: string): string[] => [
-  ...new Set(message.match(/file-api-[\w-]+/g) ?? []),
+  ...new Set(message.match(/(?:files\/[A-Za-z0-9_-]+|file-api-[\w-]+)/g) ?? []),
 ]
 
 /** 上传失败里能识别出具体原因的情况；其余统一按「上传失败」处理 */

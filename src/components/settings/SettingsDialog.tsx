@@ -33,6 +33,7 @@ import { Modal } from '../base/Modal.js'
 import { Select } from '../base/Select.js'
 import { showToast } from '../base/toastState.js'
 import { closeSettings, useSettingsDialog, type SettingsSection } from './settingsDialogState.js'
+import { setAllowPaidProviders } from '../../services/settings.js'
 import styles from './Settings.module.css'
 
 /**
@@ -101,6 +102,7 @@ const SettingsContent = ({
               <LocaleSetting />
               <TtsVoiceSetting />
               <LocationSetting />
+              <AllowPaidProvidersSetting />
             </>
           ) : (
             <>
@@ -596,6 +598,31 @@ const ExportHistory = ({ disabled }: { disabled: boolean }) => {
         >
           <IconDownloadOutline16 />
           {t('exportAllDownload')}
+        </Button>
+      }
+    />
+  )
+}
+
+/** Toggles whether paid providers may be called. Off by default. */
+const AllowPaidProvidersSetting = () => {
+  const allowPaidProviders = useSettings((state) => state.allowPaidProviders)
+  return (
+    <SettingCell
+      label="Allow paid providers"
+      status={null}
+      description={
+        allowPaidProviders
+          ? 'Enabled — paid models may be called'
+          : 'Disabled — free models only'
+      }
+      action={
+        <Button
+          variant="outlined"
+          size="m"
+          onClick={() => setAllowPaidProviders(!allowPaidProviders)}
+        >
+          {allowPaidProviders ? 'Disable' : 'Enable'}
         </Button>
       }
     />

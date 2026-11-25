@@ -1,0 +1,717 @@
+interface Env {
+  GEMINI_API_KEY: string
+  GEMINI_MODEL?: string
+  ALLOWED_ORIGIN: string
+}
+
+type GeminiPart = {
+  text?: string
+  thought?: boolean
+  fileData?: { mimeType: string; fileUri: string }
+}
+
+type GeminiChunk = {
+  candidates?: Array<{
+    content?: { parts?: GeminiPart[] }
+    finishReason?: string
+  }>
+  usageMetadata?: {
+    promptTokenCount?: number
+    candidatesTokenCount?: number
+  }
+}
+
+const DEFAULT_MODEL = 'gemini-flash-lite-latest'
+
+const corsHeaders = (origin: string) => ({
+  'Access-Control-Allow-Origin': origin,
+  'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
+  'Access-Control-Allow-Headers': 'Accept, Content-Type, X-Requested-With',
+  'Access-Control-Max-Age': '86400',
+  Vary: 'Origin',
+})
+
+function json(message: string, status: number, origin: string) {
+  return new Response(JSON.stringify({ error: { message } }), {
+    status,
+    headers: {
+      ...corsHeaders(origin),
+      'Content-Type': 'application/json',
+      'Cache-Control': 'no-store',
+    },
+  })
+}
+
+function eventFrame(type: string, payload: unknown) {
+  return `event: ${type}\ndata: ${JSON.stringify(payload)}\n\n`
+}
+
+const FILE_API = "https://generativelanguage.googleapis.com"
+
+function safeFileName(value: string): string {
+  return value.replace(/[\\/\r\n"]/g, "_").slice(0, 180) || "attachment"
+}
+
+function validGeminiFileId(value: string): boolean {
+  return /^files\/[A-Za-z0-9_-]+$/.test(value)
+}
+
+async function getActiveGeminiFile(fileId: string, env: Env): Promise<{ uri: string; mimeType: string; state: string }> {
+  if (!validGeminiFileId(fileId)) {
+    throw new Error(`invalid file_id: ${fileId}`)
+  }
+
+  const response = await fetch(`${FILE_API}/v1beta/${fileId}`, {
+    headers: { "x-goog-api-key": env.GEMINI_API_KEY },
+  })
+
+  if (!response.ok) {
+    throw new Error(`invalid file_id: ${fileId}. Gemini file lookup returned HTTP ${response.status}. Please re-upload this attachment.`)
+  }
+
+  const file = await response.json() as {
+    uri?: string
+    mimeType?: string
+    state?: string
+  }
+
+  if (file.state !== "ACTIVE" || !file.uri || !file.mimeType) {
+    throw new Error(file.state === "PROCESSING"
+      ? `Gemini attachment ${fileId} is still processing. Please retry shortly.`
+      : `invalid file_id: ${fileId}. Gemini attachment is not active. Please re-upload it.`)
+  }
+
+  return { uri: file.uri, mimeType: file.mimeType, state: file.state }
+}
+
+async function convertMessages(messages: unknown[], env: Env) {
+  const contents: Array<{
+    role: "user" | "model"
+    parts: Array<{ text?: string; fileData?: { mimeType: string; fileUri: string } }>
+  }> = []
+
+  for (const raw of messages) {
+    if (!raw || typeof raw !== "object") continue
+    const message = raw as Record<string, unknown>
+
+    if (message.role === "latest_reminder") {
+      const reminder = typeof message.content === "string" ? message.content : ""
+      if (reminder) contents.push({ role: "user", parts: [{ text: `Context update:\n${reminder}` }] })
+      continue
+    }
+
+    if (message.role !== "user" && message.role !== "assistant") continue
+
+    const parts: Array<{ text?: string; fileData?: { mimeType: string; fileUri: string } }> = []
+    const rawContent = message.content
+
+    if (typeof rawContent === "string") {
+      if (rawContent.trim()) parts.push({ text: rawContent })
+    } else if (Array.isArray(rawContent)) {
+      for (const block of rawContent) {
+        if (!block || typeof block !== "object") continue
+        const item = block as Record<string, unknown>
+
+        if (item.type === "text" && typeof item.text === "string") {
+          if (item.text) parts.push({ text: item.text })
+          continue
+        }
+
+        if (item.type === "image" || item.type === "document") {
+          const source = item.source && typeof item.source === "object"
+            ? item.source as Record<string, unknown>
+            : {}
+          const fileId = typeof source.file_id === "string" ? source.file_id : ""
+          if (source.type !== "file" || !fileId) {
+            throw new Error("This attachment format is not supported. Please remove it and upload it again.")
+          }
+          const file = await getActiveGeminiFile(fileId, env)
+          parts.push({ fileData: { mimeType: file.mimeType, fileUri: file.uri } })
+        }
+      }
+    }
+
+    if (parts.length) {
+      contents.push({ role: message.role === "assistant" ? "model" : "user", parts })
+    }
+  }
+
+  return contents
+}
+
+async function uploadGeminiFile(file: File, env: Env): Promise<Response> {
+  if (!env.GEMINI_API_KEY) return json("Gemini server credential is not configured.", 503, env.ALLOWED_ORIGIN)
+  if (!file.size || file.size > 64 * 1024 * 1024) {
+    return json("Attachment must be between 1 byte and 64 MiB.", 413, env.ALLOWED_ORIGIN)
+  }
+
+  const name = safeFileName(file.name)
+  const ext = name.split(".").pop()?.toLowerCase() || ""
+  const office = new Set(["doc", "docx", "ppt", "pptx", "xls", "xlsx"])
+  if (office.has(ext)) {
+    return json("Gemini Files does not accept this Office document format directly. Export it as PDF or plain text and upload again.", 415, env.ALLOWED_ORIGIN)
+  }
+
+  const textExt = new Set(["txt", "md", "csv", "json", "xml", "html", "css", "js", "jsx", "ts", "tsx", "py", "java", "c", "h", "cpp", "go", "rs", "php", "rb", "sh", "sql", "yaml", "yml", "toml", "log"])
+  const rawMimeType = (file.type || "").toLowerCase()
+  const mimeType = textExt.has(ext) && (!rawMimeType || rawMimeType === "application/octet-stream")
+    ? "text/plain"
+    : rawMimeType
+  const supported =
+    mimeType.startsWith("image/") ||
+    mimeType.startsWith("audio/") ||
+    mimeType.startsWith("video/") ||
+    mimeType === "application/pdf" ||
+    mimeType.startsWith("text/")
+
+  if (!supported) {
+    return json("Unsupported attachment type for Gemini. Upload an image, PDF, audio, video, or plain-text/code file.", 415, env.ALLOWED_ORIGIN)
+  }
+
+  const start = await fetch(`${FILE_API}/upload/v1beta/files`, {
+    method: "POST",
+    headers: {
+      "x-goog-api-key": env.GEMINI_API_KEY,
+      "X-Goog-Upload-Protocol": "resumable",
+      "X-Goog-Upload-Command": "start",
+      "X-Goog-Upload-Header-Content-Length": String(file.size),
+      "X-Goog-Upload-Header-Content-Type": mimeType,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ file: { display_name: name } }),
+  })
+
+  if (!start.ok) {
+    const detail = await start.text()
+    return json(`Gemini upload initialization failed (HTTP ${start.status}): ${detail.slice(0, 700)}`, start.status, env.ALLOWED_ORIGIN)
+  }
+
+  const uploadUrl = start.headers.get("x-goog-upload-url")
+  if (!uploadUrl) return json("Gemini did not return a resumable upload URL.", 502, env.ALLOWED_ORIGIN)
+
+  const uploaded = await fetch(uploadUrl, {
+    method: "POST",
+    headers: {
+      "x-goog-api-key": env.GEMINI_API_KEY,
+      "X-Goog-Upload-Offset": "0",
+      "X-Goog-Upload-Command": "upload, finalize",
+      "Content-Type": mimeType,
+    },
+    body: await file.arrayBuffer(),
+  })
+
+  if (!uploaded.ok) {
+    const detail = await uploaded.text()
+    return json(`Gemini file upload failed (HTTP ${uploaded.status}): ${detail.slice(0, 700)}`, uploaded.status, env.ALLOWED_ORIGIN)
+  }
+
+  const result = await uploaded.json() as {
+    file?: { name?: string; mimeType?: string; sizeBytes?: string | number; createTime?: string; displayName?: string }
+  }
+  const saved = result.file
+  if (!saved?.name || !validGeminiFileId(saved.name)) {
+    return json("Gemini upload completed but returned an invalid file reference.", 502, env.ALLOWED_ORIGIN)
+  }
+
+  return new Response(JSON.stringify({
+    id: saved.name,
+    type: "file",
+    size_bytes: Number(saved.sizeBytes ?? file.size),
+    created_at: saved.createTime ?? new Date().toISOString(),
+    filename: saved.displayName ?? name,
+    mime_type: saved.mimeType ?? mimeType,
+  }), {
+    status: 200,
+    headers: { ...corsHeaders(env.ALLOWED_ORIGIN), "Content-Type": "application/json", "Cache-Control": "no-store" },
+  })
+}
+
+async function deleteGeminiFile(fileId: string, env: Env): Promise<Response> {
+  if (!validGeminiFileId(fileId)) return json("Invalid Gemini file ID.", 400, env.ALLOWED_ORIGIN)
+  const response = await fetch(`${FILE_API}/v1beta/${fileId}`, {
+    method: "DELETE",
+    headers: { "x-goog-api-key": env.GEMINI_API_KEY },
+  })
+  if (!response.ok && response.status !== 404) {
+    return json(`Gemini file deletion failed (HTTP ${response.status}).`, response.status, env.ALLOWED_ORIGIN)
+  }
+  return new Response(null, { status: 204, headers: corsHeaders(env.ALLOWED_ORIGIN) })
+}
+
+async function* readGeminiEvents(body: ReadableStream<Uint8Array>) {
+  const reader = body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+
+  try {
+    while (true) {
+      const { value, done } = await reader.read()
+      if (done) break
+
+      buffer += decoder.decode(value, { stream: true })
+      const lines = buffer.split('\n')
+      buffer = lines.pop() ?? ''
+
+      for (const line of lines) {
+        const trimmed = line.trim()
+        if (!trimmed.startsWith('data:')) continue
+
+        const data = trimmed.slice(5).trim()
+        if (!data || data === '[DONE]') continue
+
+        try {
+          yield JSON.parse(data) as GeminiChunk
+        } catch {
+          // Ignore malformed keepalive or partial frames.
+        }
+      }
+    }
+
+    buffer += decoder.decode()
+    const finalLine = buffer.trim()
+
+    if (finalLine.startsWith('data:')) {
+      const data = finalLine.slice(5).trim()
+      if (data && data !== '[DONE]') {
+        try {
+          yield JSON.parse(data) as GeminiChunk
+        } catch {
+          // Ignore incomplete final frame.
+        }
+      }
+    }
+  } finally {
+    reader.releaseLock()
+  }
+}
+
+function streamResponse(
+  upstream: ReadableStream<Uint8Array>,
+  model: string,
+  origin: string
+): Response {
+  const encoder = new TextEncoder()
+
+  const stream = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      let index = -1
+      let currentType: 'text' | 'thinking' | null = null
+      let inputTokens = 0
+      let outputTokens = 0
+      let finishReason = 'STOP'
+
+      const emit = (type: string, payload: unknown) => {
+        controller.enqueue(encoder.encode(eventFrame(type, payload)))
+      }
+
+      const closeBlock = () => {
+        if (index >= 0) {
+          emit('content_block_stop', {
+            type: 'content_block_stop',
+            index,
+          })
+        }
+        currentType = null
+      }
+
+      const openBlock = (type: 'text' | 'thinking') => {
+        closeBlock()
+        index++
+
+        currentType = type
+
+        emit('content_block_start', {
+          type: 'content_block_start',
+          index,
+          content_block: type === 'text'
+            ? { type: 'text', text: '' }
+            : { type: 'thinking', thinking: '', signature: '' },
+        })
+      }
+
+      try {
+        emit('message_start', {
+          type: 'message_start',
+          message: {
+            id: crypto.randomUUID().replace(/-/g, ''),
+            model,
+            usage: {
+              input_tokens: 0,
+              output_tokens: 0,
+              cache_creation_input_tokens: 0,
+              cache_read_input_tokens: 0,
+            },
+          },
+        })
+
+        for await (const chunk of readGeminiEvents(upstream)) {
+          const candidate = chunk.candidates?.[0]
+
+          if (candidate?.finishReason) {
+            finishReason = candidate.finishReason
+          }
+
+          if (chunk.usageMetadata) {
+            inputTokens = chunk.usageMetadata.promptTokenCount ?? inputTokens
+            outputTokens = chunk.usageMetadata.candidatesTokenCount ?? outputTokens
+          }
+
+          for (const part of candidate?.content?.parts ?? []) {
+            if (typeof part.text !== 'string' || !part.text) continue
+
+            const type = part.thought ? 'thinking' : 'text'
+
+            if (currentType !== type) {
+              openBlock(type)
+            }
+
+            emit('content_block_delta', {
+              type: 'content_block_delta',
+              index,
+              delta: type === 'thinking'
+                ? { type: 'thinking_delta', thinking: part.text }
+                : { type: 'text_delta', text: part.text },
+            })
+          }
+        }
+
+        closeBlock()
+
+        emit('message_delta', {
+          type: 'message_delta',
+          delta: {
+            stop_reason: finishReason === 'MAX_TOKENS'
+              ? 'max_tokens'
+              : 'end_turn',
+            stop_sequence: null,
+          },
+          usage: {
+            input_tokens: inputTokens,
+            output_tokens: outputTokens,
+            cache_creation_input_tokens: 0,
+            cache_read_input_tokens: 0,
+          },
+        })
+
+        emit('message_stop', { type: 'message_stop' })
+        controller.close()
+      } catch (error) {
+        const message = error instanceof Error
+          ? error.message
+          : 'Gemini stream failed'
+
+        try {
+          emit('error', { error: { message } })
+          controller.close()
+        } catch {
+          // The client may already have disconnected.
+        }
+      }
+    },
+
+    cancel() {
+      // The request signal also cancels the upstream fetch.
+    },
+  })
+
+  return new Response(stream, {
+    status: 200,
+    headers: {
+      ...corsHeaders(origin),
+      'Content-Type': 'text/event-stream; charset=utf-8',
+      'Cache-Control': 'no-cache, no-transform',
+      Connection: 'keep-alive',
+      'X-Accel-Buffering': 'no',
+    },
+  })
+}
+
+
+/** Convert an audio byte array to base64 without exceeding argument limits. */
+const bytesToBase64 = (bytes: Uint8Array): string => {
+  let binary = ''
+  const chunkSize = 0x8000
+  for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + chunkSize))
+  }
+  return btoa(binary)
+}
+
+export default {
+  async fetch(request: Request, env: Env): Promise<Response> {
+    const url = new URL(request.url)
+    const origin = request.headers.get('Origin') || ''
+
+    if (origin && origin !== env.ALLOWED_ORIGIN) {
+      return json('Origin not allowed', 403, env.ALLOWED_ORIGIN)
+    }
+
+    if (request.method === 'OPTIONS') {
+      return new Response(null, {
+        status: 204,
+        headers: corsHeaders(env.ALLOWED_ORIGIN),
+      })
+    }
+
+    if (url.pathname === '/models' && request.method === 'GET') {
+      if (!env.GEMINI_API_KEY) return json('Gemini server credential is not configured.', 503, env.ALLOWED_ORIGIN)
+
+      const upstream = await fetch(`${FILE_API}/v1beta/models`, {
+        headers: { 'x-goog-api-key': env.GEMINI_API_KEY },
+      })
+
+      if (!upstream.ok) {
+        return json(`Gemini model discovery failed (HTTP ${upstream.status}).`, upstream.status, env.ALLOWED_ORIGIN)
+      }
+
+      const catalog = await upstream.json() as {
+        models?: Array<{
+          name?: string
+          supportedGenerationMethods?: string[]
+        }>
+      }
+
+      const data = (catalog.models ?? [])
+        .filter(model =>
+          typeof model.name === 'string' &&
+          model.supportedGenerationMethods?.includes('generateContent')
+        )
+        .map(model => ({
+          id: model.name!.replace(/^models\//, ''),
+          object: 'model',
+        }))
+
+      return new Response(JSON.stringify({ data }), {
+        headers: {
+          ...corsHeaders(env.ALLOWED_ORIGIN),
+          'Content-Type': 'application/json',
+          'Cache-Control': 'no-store',
+        },
+      })
+    }
+
+    if (url.pathname === '/anthropic/v1/files' && request.method === 'POST') {
+      try {
+        const form = await request.formData()
+        const file = form.get('file')
+        if (!(file instanceof File)) return json('A file is required.', 400, env.ALLOWED_ORIGIN)
+        return await uploadGeminiFile(file, env)
+      } catch (error) {
+        return json(error instanceof Error ? error.message : 'Gemini upload failed.', 502, env.ALLOWED_ORIGIN)
+      }
+    }
+
+    if (url.pathname.startsWith('/anthropic/v1/files/') && request.method === 'DELETE') {
+      const encodedId = url.pathname.slice('/anthropic/v1/files/'.length)
+      let fileId = ''
+      try { fileId = decodeURIComponent(encodedId) } catch { return json('Invalid file ID.', 400, env.ALLOWED_ORIGIN) }
+      return await deleteGeminiFile(fileId, env)
+    }
+
+    if (url.pathname === '/v1/tools/asr' && request.method === 'POST') {
+      if (!env.GEMINI_API_KEY) {
+        return json('Gemini server credential is not configured.', 503, env.ALLOWED_ORIGIN)
+      }
+
+      try {
+        const form = await request.formData()
+        const file = form.get('file')
+
+        if (!(file instanceof File)) {
+          return json('An audio file is required.', 400, env.ALLOWED_ORIGIN)
+        }
+        if (file.size === 0 || file.size > 8 * 1024 * 1024) {
+          return json('Audio must be between 1 byte and 8 MiB.', 413, env.ALLOWED_ORIGIN)
+        }
+
+        const audioBytes = new Uint8Array(await file.arrayBuffer())
+        const model = env.GEMINI_MODEL || DEFAULT_MODEL
+        const endpoint =
+          `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`
+
+        const upstream = await fetch(endpoint, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-goog-api-key': env.GEMINI_API_KEY,
+          },
+          body: JSON.stringify({
+            contents: [{
+              role: 'user',
+              parts: [
+                {
+                  inlineData: {
+                    mimeType: file.type || 'audio/wav',
+                    data: bytesToBase64(audioBytes),
+                  },
+                },
+                {
+                  text: 'Transcribe the spoken audio accurately. Return only the transcription, without commentary.',
+                },
+              ],
+            }],
+            generationConfig: {
+              temperature: 0,
+            },
+          }),
+          signal: request.signal,
+          redirect: 'manual',
+        })
+
+        if (!upstream.ok) {
+          const details = await upstream.text()
+          let message = `Gemini transcription failed with HTTP ${upstream.status}.`
+          try {
+            const parsed = JSON.parse(details) as { error?: { message?: string } }
+            if (parsed.error?.message) message = parsed.error.message
+          } catch {
+            // Keep the status-based message.
+          }
+          return json(message, upstream.status, env.ALLOWED_ORIGIN)
+        }
+
+        const result = await upstream.json() as {
+          candidates?: Array<{
+            content?: {
+              parts?: Array<{ text?: string }>
+            }
+          }>
+        }
+        const text = (result.candidates?.[0]?.content?.parts ?? [])
+          .map((part) => part.text ?? '')
+          .join('')
+          .trim()
+
+        return new Response(JSON.stringify({ text }), {
+          status: 200,
+          headers: {
+            ...corsHeaders(env.ALLOWED_ORIGIN),
+            'Content-Type': 'application/json',
+            'Cache-Control': 'no-store',
+          },
+        })
+      } catch (error) {
+        if (request.signal.aborted) {
+          return json('Request was cancelled.', 499, env.ALLOWED_ORIGIN)
+        }
+        return json(
+          error instanceof Error ? error.message : 'Unable to transcribe audio.',
+          502,
+          env.ALLOWED_ORIGIN
+        )
+      }
+    }
+
+    if (url.pathname === '/v1/tools/tts') {
+      return json(
+        'Server text-to-speech is disabled. Read aloud uses your device speech engine.',
+        501,
+        env.ALLOWED_ORIGIN
+      )
+    }
+
+    if (url.pathname !== '/anthropic/v1/messages' || request.method !== 'POST') {
+      return json('Endpoint or method not allowed', 404, env.ALLOWED_ORIGIN)
+    }
+
+    if (!env.GEMINI_API_KEY) {
+      return json('Gemini server credential is not configured.', 503, env.ALLOWED_ORIGIN)
+    }
+
+    let body: Record<string, unknown>
+
+    try {
+      body = await request.json() as Record<string, unknown>
+    } catch {
+      return json('Invalid JSON request body.', 400, env.ALLOWED_ORIGIN)
+    }
+
+    if (!Array.isArray(body.messages)) {
+      return json('A messages array is required.', 400, env.ALLOWED_ORIGIN)
+    }
+
+    let contents: Awaited<ReturnType<typeof convertMessages>>
+
+    try {
+      contents = await convertMessages(body.messages, env)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to convert chat history.'
+      return json(
+        message,
+        /invalid file_id/i.test(message) ? 400 : 501,
+        env.ALLOWED_ORIGIN
+      )
+    }
+
+    if (contents.length === 0) {
+      return json('No supported text messages were provided.', 400, env.ALLOWED_ORIGIN)
+    }
+
+    const model = env.GEMINI_MODEL || DEFAULT_MODEL
+
+    const payload: Record<string, unknown> = { contents }
+    if (typeof body.system === "string" && body.system.trim()) {
+      payload.systemInstruction = { parts: [{ text: body.system }] }
+    }
+
+    const tools = Array.isArray(body.tools) ? body.tools : []
+    const searchEnabled = tools.some((tool) => {
+      if (!tool || typeof tool !== 'object') return false
+      return (tool as Record<string, unknown>).type === 'deepseek_web_search'
+    })
+
+    if (searchEnabled) {
+      payload.tools = [{ google_search: {} }]
+    }
+
+    const endpoint =
+      `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:streamGenerateContent?alt=sse`
+
+    try {
+      const upstream = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-goog-api-key': env.GEMINI_API_KEY,
+        },
+        body: JSON.stringify(payload),
+        signal: request.signal,
+        redirect: 'manual',
+      })
+
+      if (!upstream.ok) {
+        const details = await upstream.text()
+        let message = `Gemini API returned HTTP ${upstream.status}.`
+
+        try {
+          const parsed = JSON.parse(details) as {
+            error?: { message?: string }
+          }
+          if (parsed.error?.message) {
+            message = parsed.error.message
+          }
+        } catch {
+          // Keep the safe status-based message.
+        }
+
+        return json(message, upstream.status, env.ALLOWED_ORIGIN)
+      }
+
+      if (!upstream.body) {
+        return json('Gemini returned an empty response.', 502, env.ALLOWED_ORIGIN)
+      }
+
+      return streamResponse(upstream.body, model, env.ALLOWED_ORIGIN)
+    } catch (error) {
+      if (request.signal.aborted) {
+        return json('Request was cancelled.', 499, env.ALLOWED_ORIGIN)
+      }
+
+      return json(
+        error instanceof Error ? error.message : 'Unable to reach Gemini.',
+        502,
+        env.ALLOWED_ORIGIN
+      )
+    }
+  },
+}

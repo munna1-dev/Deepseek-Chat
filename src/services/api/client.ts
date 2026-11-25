@@ -1,4 +1,5 @@
 import { translate, type TranslationMessage } from '../../i18n/index.js'
+import { useSettings } from '../settings.js'
 import { resizeUploadImage } from '../../utils/resizeUploadImage.js'
 import { readMessageEvent } from './parseEvent.js'
 import { readServerSentEvents } from './sse.js'
@@ -7,16 +8,13 @@ import type {
   CreateMessageRequest,
   FileObject,
   FilePurpose,
-  MessageStreamEvent,
-} from './types.js'
+  MessageStreamEvent, ChatModel } from './types.js'
 
-/** 构建期 API 地址，默认 https://api.deepseek.com；本地开发支持开发服务器代理 */
+/** Gemini Worker proxy address; local development uses the local Worker. */
 export const API_ORIGIN = __API_ORIGIN__
 /** Anthropic 兼容接口的前缀 */
 const ANTHROPIC_BASE_URL = `${API_ORIGIN}/anthropic/v1`
 /** 引用 Files API 上传的图片、调用 Anthropic 兼容 Files API 时必须携带 */
-const FILES_BETA = 'files-api-2025-04-14'
-
 export type ApiErrorKind =
   /** 非 2xx 响应 */
   | 'http'
@@ -83,10 +81,29 @@ export const request = async (url: string, init: RequestInit): Promise<Response>
   return response
 }
 
-const anthropicHeaders = (_apiKey: string, beta: boolean): Record<string, string> => ({
-  // The server-side proxy injects the DeepSeek credential.
-  ...(beta ? { 'anthropic-beta': FILES_BETA } : {}),
-})
+/** Models classified as paid by the Worker registry. Kept here only for fast-fail UX. */
+const PAID_MODELS = new Set<ChatModel>(['deepseek-flash', 'deepseek-v4-pro'])
+
+/** Reject paid models before they reach the network unless the user opted in. */
+const assertModelAllowed = (model: ChatModel): void => {
+  if (!PAID_MODELS.has(model)) return
+  if (useSettings.getState().allowPaidProviders) return
+  throw new ApiError(
+    'http',
+    'Model ' + model + ' is a paid provider. Enable "Allow paid providers" in Settings to use it.',
+    422
+  )
+}
+
+/** Opt-in header; Worker refuses paid models without it. */
+const costHeaders = (): Record<string, string> =>
+  useSettings.getState().allowPaidProviders ? { 'x-allow-paid': '1' } : {}
+
+const anthropicHeaders = (apiKey: string, beta = false): Record<string, string> => {
+  void apiKey
+  void beta
+  return {}
+}
 
 /** 用 GET /models 校验 API Key（不产生费用） */
 export const verifyApiKey = async (_apiKey: string, signal?: AbortSignal): Promise<void> => {
@@ -145,10 +162,13 @@ export async function* streamMessage(
   body: CreateMessageRequest,
   signal: AbortSignal
 ): AsyncGenerator<MessageStreamEvent> {
+  assertModelAllowed(body.model)
+
   const response = await request(`${ANTHROPIC_BASE_URL}/messages`, {
     method: 'POST',
     headers: {
       ...anthropicHeaders(apiKey, hasFile(body)),
+      ...costHeaders(),
       'Content-Type': 'application/json',
       Accept: 'text/event-stream',
     },
