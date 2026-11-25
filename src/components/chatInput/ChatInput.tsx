@@ -1,3 +1,4 @@
+import { ImageGenerator } from "./ImageGenerator";
 import clsx from 'clsx'
 import { memo, useCallback, useEffect, useLayoutEffect, useRef } from 'react'
 import {
