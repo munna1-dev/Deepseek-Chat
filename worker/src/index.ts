@@ -13,6 +13,8 @@ export interface Env {
   GEMINI_API_KEY?: string
   GEMINI_MODEL?: string
   DEEPSEEK_API_KEY?: string
+  HF_TOKEN?: string
+  HF_IMAGE_MODEL?: string
   ALLOWED_ORIGIN: string
 }
 
@@ -29,6 +31,102 @@ export default {
     }
     if (request.method === 'OPTIONS') {
       return new Response(null, { status: 204, headers: corsHeaders(env.ALLOWED_ORIGIN) })
+    }
+
+
+    // ---- Hugging Face image generation ----
+    if (url.pathname === '/v1/tools/image' && request.method === 'POST') {
+      if (!env.HF_TOKEN) {
+        return new Response(JSON.stringify({ error: 'Image generation is not configured. Add the HF_TOKEN Worker secret.' }), {
+          status: 503,
+          headers: { ...corsHeaders(env.ALLOWED_ORIGIN), 'Content-Type': 'application/json', 'Cache-Control': 'no-store' },
+        })
+      }
+
+      let body: { prompt?: unknown }
+      try {
+        body = await request.json() as { prompt?: unknown }
+      } catch {
+        return new Response(JSON.stringify({ error: 'A valid JSON request is required.' }), {
+          status: 400,
+          headers: { ...corsHeaders(env.ALLOWED_ORIGIN), 'Content-Type': 'application/json' },
+        })
+      }
+
+      if (typeof body.prompt !== 'string' || !body.prompt.trim()) {
+        return new Response(JSON.stringify({ error: 'A valid image prompt is required.' }), {
+          status: 400,
+          headers: { ...corsHeaders(env.ALLOWED_ORIGIN), 'Content-Type': 'application/json' },
+        })
+      }
+      if (body.prompt.length > 4000) {
+        return new Response(JSON.stringify({ error: 'Prompt is too long.' }), {
+          status: 400,
+          headers: { ...corsHeaders(env.ALLOWED_ORIGIN), 'Content-Type': 'application/json' },
+        })
+      }
+
+      try {
+        const model = env.HF_IMAGE_MODEL || 'black-forest-labs/FLUX.1-schnell'
+        const upstream = await fetch(
+          `https://router.huggingface.co/hf-inference/models/${encodeURIComponent(model)}`,
+          {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${env.HF_TOKEN}`,
+              'Content-Type': 'application/json',
+              'Accept': 'image/*',
+            },
+            body: JSON.stringify({ inputs: body.prompt.trim() }),
+            signal: request.signal,
+          }
+        )
+
+        if (!upstream.ok) {
+          const details = await upstream.text()
+          let message = `Image provider returned HTTP ${upstream.status}.`
+          try {
+            const parsed = JSON.parse(details) as { error?: string; message?: string }
+            message = parsed.error || parsed.message || message
+          } catch {
+            if (details && details.length < 500) message = details
+          }
+          return new Response(JSON.stringify({ error: message }), {
+            status: upstream.status,
+            headers: { ...corsHeaders(env.ALLOWED_ORIGIN), 'Content-Type': 'application/json', 'Cache-Control': 'no-store' },
+          })
+        }
+
+        const mimeType = upstream.headers.get('content-type') || ''
+        if (!mimeType.startsWith('image/')) {
+          return new Response(JSON.stringify({ error: 'The image provider did not return an image.' }), {
+            status: 502,
+            headers: { ...corsHeaders(env.ALLOWED_ORIGIN), 'Content-Type': 'application/json' },
+          })
+        }
+
+        const imageBytes = new Uint8Array(await upstream.arrayBuffer())
+        if (imageBytes.length === 0 || imageBytes.length > 15 * 1024 * 1024) {
+          return new Response(JSON.stringify({ error: 'The returned image is empty or too large.' }), {
+            status: 502,
+            headers: { ...corsHeaders(env.ALLOWED_ORIGIN), 'Content-Type': 'application/json' },
+          })
+        }
+
+        return new Response(JSON.stringify({
+          image: bytesToBase64(imageBytes),
+          mimeType,
+        }), {
+          headers: { ...corsHeaders(env.ALLOWED_ORIGIN), 'Content-Type': 'application/json', 'Cache-Control': 'no-store' },
+        })
+      } catch (error) {
+        return new Response(JSON.stringify({
+          error: error instanceof Error ? error.message : 'Image generation service unavailable.',
+        }), {
+          status: 502,
+          headers: { ...corsHeaders(env.ALLOWED_ORIGIN), 'Content-Type': 'application/json' },
+        })
+      }
     }
 
     // ---- /v1/providers ----
@@ -146,7 +244,7 @@ export default {
     if (url.pathname === "/v1/tools/image" && request.method === "POST") {
       try {
         const body = await request.json()
-        const imageApiRes = await fetch(`https://deepseek-chat.vercel.app/api/image`, {
+        const imageApiRes = await fetch(`https://deepseek-chat-iota.vercel.app/api/image`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(body)

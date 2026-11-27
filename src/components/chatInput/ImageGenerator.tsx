@@ -1,5 +1,5 @@
 import { API_ORIGIN } from "../../services/api/client.js";
-import React, { useState } from 'react';
+import { useState } from 'react';
 
 export const ImageGenerator = () => {
   const [prompt, setPrompt] = useState('');
@@ -16,15 +16,22 @@ export const ImageGenerator = () => {
         body: JSON.stringify({ prompt })
       });
       const data = await res.json();
+
+      if (!res.ok) {
+        throw new Error(data.error || `Image request failed (${res.status})`);
+      }
+
       if (data.image) {
-        // Detect if it's base64 or a direct URL
-        const imgSrc = data.image.startsWith('http') ? data.image : `data:image/jpeg;base64,${data.image}`;
+        const imgSrc = data.image.startsWith('http')
+          ? data.image
+          : `data:${data.mimeType || 'image/png'};base64,${data.image}`;
+
         setImage(imgSrc);
       } else {
-        alert("Failed: " + (data.error || "Unknown error"));
+        throw new Error(data.error || "No image returned");
       }
     } catch (err) {
-      alert("Network error generating image");
+      alert(err instanceof Error ? err.message : "Network error generating image");
     } finally {
       setLoading(false);
     }

@@ -1,4 +1,4 @@
-import { ImageGenerator } from "./ImageGenerator";
+import { ImageGenerator } from "./ImageGenerator.js";
 import clsx from 'clsx'
 import { memo, useCallback, useEffect, useLayoutEffect, useRef } from 'react'
 import {
