@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { setAllowPaidProviders, setModel, useSettings } from '../../services/settings.js'
+import { setModel, useSettings } from '../../services/settings.js'
 import {
   flattenModels,
   loadProviders,
@@ -13,7 +13,7 @@ import { IconGlobeLanguageOutline14 } from '../base/icons.js'
 const shorten = (label: string, max = 22): string =>
   label.length <= max ? label : label.slice(0, max - 1) + '…'
 
-/** Tier dot: green for free, red for paid. */
+/** Visual indicator for the available free models. */
 const TierDot = ({ tier }: { tier: 'free' | 'paid' }) => (
   <span
     aria-hidden
@@ -22,50 +22,41 @@ const TierDot = ({ tier }: { tier: 'free' | 'paid' }) => (
       width: 8,
       height: 8,
       borderRadius: '50%',
-      background: tier === 'free' ? '#2ecc71' : '#e74c3c',
+      background: tier === 'paid' ? '#d69e2e' : '#2ecc71',
     }}
   />
 )
 
 export const ModelPicker = () => {
   const selected = useSettings((state) => state.model)
-  const allowPaid = useSettings((state) => state.allowPaidProviders)
+  const allowPaidProviders = useSettings((state) => state.allowPaidProviders)
   const [models, setModels] = useState<ModelOption[]>([])
 
   useEffect(() => {
     let cancelled = false
     void loadProviders().then((reg) => {
-      if (!cancelled) setModels(flattenModels(reg))
+      if (!cancelled) { setModels(flattenModels(reg)) }
     })
     return () => {
       cancelled = true
     }
   }, [])
 
+  const availableModels = models.filter((m) => m.tier === 'free' || allowPaidProviders)
   const currentId = resolveModel(selected ?? undefined)
-  const current = models.find((m) => m.id === currentId)
+  const current = availableModels.find((m) => m.id === currentId)
   const triggerLabel = current
     ? shorten(current.label)
     : 'Gemini Flash Lite'
 
   const options = useMemo<MenuOption[]>(() => {
-    return models.map((m) => {
-      const blocked = m.tier === 'paid' && !allowPaid
-      return {
-        key: m.id,
-        label: blocked ? `${m.label} (enable paid)` : m.label,
-        icon: <TierDot tier={m.tier} />,
-        danger: blocked,
-        onSelect: () => {
-          if (blocked) {
-            setAllowPaidProviders(true)
-            return
-          }
-          setModel(m.id)
-        },
-      }
-    })
-  }, [models, allowPaid])
+    return availableModels.map((m) => ({
+      key: m.id,
+      label: m.tier === 'paid' ? `${m.label} · Paid` : m.label,
+      icon: <TierDot tier={m.tier} />,
+      onSelect: () => setModel(m.id),
+    }))
+  }, [availableModels])
 
   return (
     <Menu options={options}>

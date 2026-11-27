@@ -80,7 +80,15 @@ export const createConfig = ({
       scriptLoading: 'defer',
       meta: { 'application-version': version },
     }),
-    new rspack.DefinePlugin({ __API_ORIGIN__: JSON.stringify(apiOrigin) }),
+    new rspack.DefinePlugin({
+      __API_ORIGIN__: JSON.stringify(apiOrigin),
+      __SUPABASE_URL__: JSON.stringify(
+        process.env.SUPABASE_URL ?? 'https://jdjqmcykbajbpqqcupev.supabase.co'
+      ),
+      __SUPABASE_PUBLISHABLE_KEY__: JSON.stringify(
+        process.env.SUPABASE_PUBLISHABLE_KEY ?? 'sb_publishable_AOi7HxT0GMIdpxH1qU4jVQ_d2Fcy0be'
+      ),
+    }),
     new rspack.CopyRspackPlugin({
       patterns: [
         { from: path.resolve(root, 'LICENSE'), to: 'LICENSE', toType: 'file' },

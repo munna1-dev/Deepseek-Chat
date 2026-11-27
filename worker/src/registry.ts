@@ -12,23 +12,7 @@ export type ProviderEntry = {
   models: ModelEntry[]
 }
 
-/** Server-side model tier registry. The frontend MUST NOT classify models. */
-export const MODEL_TIERS: Record<string, ModelTier> = {
-  'gemini-flash-lite-latest': 'free',
-  'gemini-2.5-flash': 'free',
-  'deepseek-flash': 'paid',
-  'deepseek-v4-pro': 'paid',
-}
-
-export const tierOf = (model: string): ModelTier | 'unknown' =>
-  MODEL_TIERS[model] ?? 'unknown'
-
-export const providerOf = (model: string): string | undefined =>
-  PROVIDERS.find((provider) =>
-    provider.models.some((entry) => entry.id === model)
-  )?.id
-
-/** Full provider catalogue. Source of truth for tiers and labels. */
+/** Server-side model tier registry. Never trust frontend tier declarations. */
 export const PROVIDERS: ProviderEntry[] = [
   {
     id: 'gemini',
@@ -38,12 +22,18 @@ export const PROVIDERS: ProviderEntry[] = [
       { id: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash', tier: 'free' },
     ],
   },
-  {
-    id: 'deepseek',
-    label: 'DeepSeek',
-    models: [
-      { id: 'deepseek-flash', label: 'DeepSeek Flash', tier: 'paid' },
-      { id: 'deepseek-v4-pro', label: 'DeepSeek V4 Pro', tier: 'paid' },
-    ],
-  },
 ]
+
+export const MODEL_TIERS: Record<string, ModelTier> = Object.fromEntries(
+  PROVIDERS.flatMap((provider) =>
+    provider.models.map((model) => [model.id, model.tier])
+  )
+)
+
+export const tierOf = (model: string): ModelTier | 'unknown' =>
+  MODEL_TIERS[model] ?? 'unknown'
+
+export const providerOf = (model: string): string | undefined =>
+  PROVIDERS.find((provider) =>
+    provider.models.some((entry) => entry.id === model)
+  )?.id

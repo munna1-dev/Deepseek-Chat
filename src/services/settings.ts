@@ -17,10 +17,10 @@ type Settings = {
   thinking: boolean
   search: boolean
   siderCollapsed: boolean
-  /** Paid providers (e.g. DeepSeek with credits) only callable when true. */
-  allowPaidProviders: boolean
+
   /** Currently selected model id; null means use default free model. */
   model: string | null
+  allowPaidProviders: boolean
 }
 
 const KEYS = {
@@ -32,8 +32,9 @@ const KEYS = {
   thinking: 'chat-demo:thinking',
   search: 'chat-demo:search',
   siderCollapsed: 'chat-demo:sider-collapsed',
-  allowPaidProviders: 'chat-demo:allow-paid-providers',
+
   model: 'chat-demo:model',
+  allowPaidProviders: 'chat-demo:allow-paid-providers',
 } as const
 
 const read = (key: string) => {
@@ -102,8 +103,9 @@ export const useSettings = create<Settings>(() => ({
   thinking: read(KEYS.thinking) === 'true',
   search: read(KEYS.search) === 'true',
   siderCollapsed: read(KEYS.siderCollapsed) === 'true',
-  allowPaidProviders: read(KEYS.allowPaidProviders) === 'true',
+
   model: read(KEYS.model),
+  allowPaidProviders: read(KEYS.allowPaidProviders) === 'true',
 }))
 
 export const setLocale = (locale: Locale) => {
@@ -147,12 +149,14 @@ export const setSiderCollapsed = (siderCollapsed: boolean) => {
   useSettings.setState({ siderCollapsed })
 }
 
-export const setAllowPaidProviders = (allowPaidProviders: boolean) => {
-  write(KEYS.allowPaidProviders, String(allowPaidProviders))
-  useSettings.setState({ allowPaidProviders })
-}
 
 export const setModel = (model: string | null) => {
   write(KEYS.model, model)
   useSettings.setState({ model })
+}
+
+/** Paid-provider API usage is explicitly opt-in and disabled by default. */
+export const setAllowPaidProviders = (allowPaidProviders: boolean) => {
+  write(KEYS.allowPaidProviders, String(allowPaidProviders))
+  useSettings.setState({ allowPaidProviders })
 }

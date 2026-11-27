@@ -180,7 +180,7 @@ export const ApiDevelopment = () => {
               The service exposes HTTP endpoints and returns JSON or
               server-sent events (SSE). Send requests over HTTPS and set
               the appropriate content type. Use the provider catalogue
-              to discover this application's configured models.
+              to discover this application&apos;s configured models.
             </p>
             <div className={styles.endpoint}>
               <span>CHAT COMPLETIONS</span>
@@ -307,30 +307,12 @@ export const ApiDevelopment = () => {
                 </div>
                 <span className={styles.free}>Free tier</span>
               </div>
-              <div className={styles.model}>
-                <div>
-                  <strong>DeepSeek Flash</strong>
-                  <code>deepseek-flash</code>
-                </div>
-                <span className={styles.paid}>Paid · Opt-in</span>
-              </div>
-              <div className={styles.model}>
-                <div>
-                  <strong>DeepSeek V4 Pro</strong>
-                  <code>deepseek-v4-pro</code>
-                </div>
-                <span className={styles.paid}>Paid · Opt-in</span>
-              </div>
             </div>
             <p className={styles.hint}>
-              The free/paid labels reflect this application's model
+              The free/paid labels reflect this application&apos;s model
               registry, not a guarantee of provider pricing or unlimited
-              usage. Provider quotas and billing may apply.
-            </p>
-            <p>
-              Paid models require the <code>x-allow-paid: 1</code> request
-              header. This is an explicit usage opt-in only; it is not
-              authentication or payment verification.
+              usage. Gemini free-tier quotas and rate limits still apply.
+              The chat API does not fall back to paid models.
             </p>
             <CodeSample
               title="cURL · Discover application providers and models"
@@ -340,9 +322,8 @@ export const ApiDevelopment = () => {
               onCopy={copyCode}
             />
             <p className={styles.hint}>
-              GET /v1/providers returns the configured Gemini and DeepSeek
-              model catalogue. GET /models separately discovers models
-              exposed by the connected Gemini provider.
+              GET /v1/providers returns the supported Gemini chat models. GET /models
+              separately discovers models exposed by the connected Gemini provider.
             </p>
             <CodeSample
               title="cURL · Discover live Gemini models"
@@ -359,12 +340,11 @@ export const ApiDevelopment = () => {
               <p><code>400</code> Invalid request or unsupported model.</p>
               <p><code>403</code> Request origin is not allowed.</p>
               <p><code>413</code> Upload or image size limit exceeded.</p>
-              <p><code>422</code> Paid model opt-in header is missing.</p>
               <p><code>503</code> Required provider credentials are not configured.</p>
             </div>
             <p className={styles.hint}>
               Keep provider credentials in Worker secrets. Never put
-              Gemini, DeepSeek or Hugging Face secrets in frontend code,
+              Gemini or Hugging Face secrets in frontend code,
               public repositories or browser requests.
             </p>
           </section>

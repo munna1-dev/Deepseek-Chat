@@ -7,19 +7,63 @@ import {
   streamGeminiAsAnthropic,
   uploadGeminiFile,
 } from './providers/gemini.js'
-import { forwardToDeepSeek } from './providers/deepseek.js'
 
 export interface Env {
   GEMINI_API_KEY?: string
   GEMINI_MODEL?: string
   DEEPSEEK_API_KEY?: string
-  HF_TOKEN?: string
-  HF_IMAGE_MODEL?: string
+  SUPABASE_URL?: string
+  SUPABASE_PUBLISHABLE_KEY?: string
   ALLOWED_ORIGIN: string
 }
 
 const DEFAULT_MODEL = 'gemini-flash-lite-latest'
 const FILE_API = 'https://generativelanguage.googleapis.com'
+
+/** Validate a Supabase access token with Supabase Auth before using paid resources. */
+const requireUser = async (request: Request, env: Env): Promise<Response | null> => {
+  const authorization = request.headers.get('Authorization') || ''
+  const match = authorization.match(/^Bearer\s+(.+)$/i)
+  if (!match) {
+    return json('Sign in is required to use this endpoint.', 401, env.ALLOWED_ORIGIN)
+  }
+
+  if (!env.SUPABASE_URL || !env.SUPABASE_PUBLISHABLE_KEY) {
+    return json('Authentication is not configured on the API server.', 503, env.ALLOWED_ORIGIN)
+  }
+
+  try {
+    const response = await fetch(
+      `${env.SUPABASE_URL.replace(/\/$/, '')}/auth/v1/user`,
+      {
+        method: 'GET',
+        headers: {
+          apikey: env.SUPABASE_PUBLISHABLE_KEY,
+          Authorization: `Bearer ${match[1]}`,
+        },
+        signal: request.signal,
+      }
+    )
+
+    if (response.status === 401 || response.status === 403) {
+      return json('Your sign-in session is invalid or expired. Please sign in again.', 401, env.ALLOWED_ORIGIN)
+    }
+    if (!response.ok) {
+      return json('Unable to verify your sign-in session.', 503, env.ALLOWED_ORIGIN)
+    }
+
+    const user = await response.json() as { id?: unknown }
+    if (typeof user.id !== 'string' || !user.id) {
+      return json('Supabase returned an invalid user session.', 401, env.ALLOWED_ORIGIN)
+    }
+    return null
+  } catch {
+    if (request.signal.aborted) {
+      return json('Request was cancelled.', 499, env.ALLOWED_ORIGIN)
+    }
+    return json('Unable to reach Supabase authentication.', 503, env.ALLOWED_ORIGIN)
+  }
+}
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
@@ -34,130 +78,30 @@ export default {
     }
 
 
-    // ---- Hugging Face image generation ----
-    if (url.pathname === '/v1/tools/image' && request.method === 'POST') {
-      if (!env.HF_TOKEN) {
-        return new Response(JSON.stringify({ error: 'Image generation is not configured. Add the HF_TOKEN Worker secret.' }), {
-          status: 503,
-          headers: { ...corsHeaders(env.ALLOWED_ORIGIN), 'Content-Type': 'application/json', 'Cache-Control': 'no-store' },
-        })
-      }
-
-      let body: { prompt?: unknown }
-      try {
-        body = await request.json() as { prompt?: unknown }
-      } catch {
-        return new Response(JSON.stringify({ error: 'A valid JSON request is required.' }), {
-          status: 400,
-          headers: { ...corsHeaders(env.ALLOWED_ORIGIN), 'Content-Type': 'application/json' },
-        })
-      }
-
-      if (typeof body.prompt !== 'string' || !body.prompt.trim()) {
-        return new Response(JSON.stringify({ error: 'A valid image prompt is required.' }), {
-          status: 400,
-          headers: { ...corsHeaders(env.ALLOWED_ORIGIN), 'Content-Type': 'application/json' },
-        })
-      }
-      if (body.prompt.length > 4000) {
-        return new Response(JSON.stringify({ error: 'Prompt is too long.' }), {
-          status: 400,
-          headers: { ...corsHeaders(env.ALLOWED_ORIGIN), 'Content-Type': 'application/json' },
-        })
-      }
-
-      try {
-        const model = env.HF_IMAGE_MODEL || 'black-forest-labs/FLUX.1-schnell'
-        const upstream = await fetch(
-          `https://router.huggingface.co/hf-inference/models/${encodeURIComponent(model)}`,
-          {
-            method: 'POST',
-            headers: {
-              'Authorization': `Bearer ${env.HF_TOKEN}`,
-              'Content-Type': 'application/json',
-              'Accept': 'image/*',
-            },
-            body: JSON.stringify({ inputs: body.prompt.trim() }),
-            signal: request.signal,
-          }
-        )
-
-        if (!upstream.ok) {
-          const details = await upstream.text()
-          let message = `Image provider returned HTTP ${upstream.status}.`
-          try {
-            const parsed = JSON.parse(details) as { error?: string; message?: string }
-            message = parsed.error || parsed.message || message
-          } catch {
-            if (details && details.length < 500) message = details
-          }
-          return new Response(JSON.stringify({ error: message }), {
-            status: upstream.status,
-            headers: { ...corsHeaders(env.ALLOWED_ORIGIN), 'Content-Type': 'application/json', 'Cache-Control': 'no-store' },
-          })
-        }
-
-        const mimeType = upstream.headers.get('content-type') || ''
-        if (!mimeType.startsWith('image/')) {
-          return new Response(JSON.stringify({ error: 'The image provider did not return an image.' }), {
-            status: 502,
-            headers: { ...corsHeaders(env.ALLOWED_ORIGIN), 'Content-Type': 'application/json' },
-          })
-        }
-
-        const imageBytes = new Uint8Array(await upstream.arrayBuffer())
-        if (imageBytes.length === 0 || imageBytes.length > 15 * 1024 * 1024) {
-          return new Response(JSON.stringify({ error: 'The returned image is empty or too large.' }), {
-            status: 502,
-            headers: { ...corsHeaders(env.ALLOWED_ORIGIN), 'Content-Type': 'application/json' },
-          })
-        }
-
-        return new Response(JSON.stringify({
-          image: bytesToBase64(imageBytes),
-          mimeType,
-        }), {
-          headers: { ...corsHeaders(env.ALLOWED_ORIGIN), 'Content-Type': 'application/json', 'Cache-Control': 'no-store' },
-        })
-      } catch (error) {
-        return new Response(JSON.stringify({
-          error: error instanceof Error ? error.message : 'Image generation service unavailable.',
-        }), {
-          status: 502,
-          headers: { ...corsHeaders(env.ALLOWED_ORIGIN), 'Content-Type': 'application/json' },
-        })
-      }
-    }
-
     // ---- /v1/providers ----
     if (url.pathname === '/v1/providers' && request.method === 'GET') {
       return jsonOk({ providers: PROVIDERS }, env.ALLOWED_ORIGIN)
     }
 
-    // ---- /models (Gemini discovery) ----
+    // ---- /models (approved free chat models only) ----
     if (url.pathname === '/models' && request.method === 'GET') {
-      if (!env.GEMINI_API_KEY) return json('Gemini server credential is not configured.', 503, env.ALLOWED_ORIGIN)
-      const upstream = await fetch(`${FILE_API}/v1beta/models`, {
-        headers: { 'x-goog-api-key': env.GEMINI_API_KEY },
-      })
-      if (!upstream.ok) {
-        return json(`Gemini model discovery failed (HTTP ${upstream.status}).`, upstream.status, env.ALLOWED_ORIGIN)
+      if (!env.GEMINI_API_KEY) {
+        return json('Gemini server credential is not configured.', 503, env.ALLOWED_ORIGIN)
       }
-      const catalog = (await upstream.json()) as {
-        models?: Array<{ name?: string; supportedGenerationMethods?: string[] }>
-      }
-      const data = (catalog.models ?? [])
-        .filter(
-          (m) =>
-            typeof m.name === 'string' &&
-            m.supportedGenerationMethods?.includes('generateContent')
-        )
-        .map((m) => ({ id: m.name!.replace(/^models\//, ''), object: 'model' }))
+
+      const data = PROVIDERS.flatMap((provider) =>
+        provider.models
+          .filter((model) => model.tier === 'free')
+          .map((model) => ({ id: model.id, object: 'model' }))
+      )
+
       return jsonOk({ data }, env.ALLOWED_ORIGIN)
     }
 
     // ---- Files ----
     if (url.pathname === '/anthropic/v1/files' && request.method === 'POST') {
+      const authError = await requireUser(request, env)
+      if (authError) return authError
       try {
         const form = await request.formData()
         const file = form.get('file')
@@ -169,6 +113,8 @@ export default {
     }
 
     if (url.pathname.startsWith('/anthropic/v1/files/') && request.method === 'DELETE') {
+      const authError = await requireUser(request, env)
+      if (authError) return authError
       const encodedId = url.pathname.slice('/anthropic/v1/files/'.length)
       let fileId = ''
       try {
@@ -181,6 +127,8 @@ export default {
 
     // ---- ASR ----
     if (url.pathname === '/v1/tools/asr' && request.method === 'POST') {
+      const authError = await requireUser(request, env)
+      if (authError) return authError
       if (!env.GEMINI_API_KEY) return json('Gemini server credential is not configured.', 503, env.ALLOWED_ORIGIN)
       try {
         const form = await request.formData()
@@ -240,30 +188,13 @@ export default {
     }
 
 
-    // ---- Image Generation ----
-    if (url.pathname === "/v1/tools/image" && request.method === "POST") {
-      try {
-        const body = await request.json()
-        const imageApiRes = await fetch(`https://deepseek-chat-iota.vercel.app/api/image`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body)
-        })
-        
-        const data = await imageApiRes.json()
-        return new Response(JSON.stringify(data), {
-          status: imageApiRes.status,
-          headers: { ...corsHeaders(env.ALLOWED_ORIGIN), "Content-Type": "application/json" }
-        })
-      } catch (error) {
-        return json("Image generation failed.", 502, env.ALLOWED_ORIGIN)
-      }
-    }
-
     // ---- Chat ----
     if (url.pathname !== '/anthropic/v1/messages' || request.method !== 'POST') {
       return json('Endpoint or method not allowed', 404, env.ALLOWED_ORIGIN)
     }
+
+    const authError = await requireUser(request, env)
+    if (authError) return authError
 
     let body: Record<string, unknown>
     try {
@@ -276,32 +207,21 @@ export default {
     }
 
     const selectedModel = typeof body.model === 'string' ? body.model : DEFAULT_MODEL
-    const selectedTier = tierOf(selectedModel)
-    const selectedProvider = providerOf(selectedModel)
+    const tier = tierOf(selectedModel)
+    const provider = providerOf(selectedModel)
 
-    // Reject unregistered models before making any upstream request.
-    if (selectedTier === 'unknown' || !selectedProvider) {
-      return json('Unknown or unsupported model.', 400, env.ALLOWED_ORIGIN)
+    // Reject unknown models and enforce paid consent on the server.
+    if (tier === 'unknown' || !provider) {
+      return json('Unsupported model.', 400, env.ALLOWED_ORIGIN)
     }
 
-    // Cost gate — must precede any upstream fetch.
-    if (selectedTier === 'paid' && request.headers.get('x-allow-paid') !== '1') {
-      return json(
-        `Model ${selectedModel} is a paid provider. Enable "Allow paid providers" in Settings.`,
-        422,
-        env.ALLOWED_ORIGIN
-      )
+    if (tier === 'paid' && request.headers.get('x-allow-paid') !== '1') {
+      return json('Paid provider consent is required for this model.', 403, env.ALLOWED_ORIGIN)
     }
 
-    if (selectedProvider === 'deepseek') {
-      return await forwardToDeepSeek(request, body, env)
+    if (!env.GEMINI_API_KEY) {
+      return json('Gemini server credential is not configured.', 503, env.ALLOWED_ORIGIN)
     }
-
-    if (selectedProvider !== 'gemini') {
-      return json('Unsupported provider.', 400, env.ALLOWED_ORIGIN)
-    }
-
-    if (!env.GEMINI_API_KEY) return json('Gemini server credential is not configured.', 503, env.ALLOWED_ORIGIN)
 
     let contents: Awaited<ReturnType<typeof convertMessages>>
     try {

@@ -23,6 +23,7 @@ type Registry = {
 
 /** Registry fetched once from the Worker. The Worker is the only source of truth for tiers. */
 let registryPromise: Promise<Registry> | null = null
+let registryCache: Registry | null = null
 
 const DEFAULT_FALLBACK: Registry = {
   providers: [
@@ -39,7 +40,10 @@ export const loadProviders = (): Promise<Registry> => {
     registryPromise = (async () => {
       try {
         const res = await fetch(`${API_ORIGIN}/v1/providers`, { method: 'GET' })
-        if (!res.ok) return DEFAULT_FALLBACK
+        if (!res.ok) {
+          registryCache = DEFAULT_FALLBACK
+          return DEFAULT_FALLBACK
+        }
         const body = (await res.json()) as unknown
         if (
           body &&
@@ -47,10 +51,13 @@ export const loadProviders = (): Promise<Registry> => {
           Array.isArray((body as Registry).providers) &&
           (body as Registry).providers.length > 0
         ) {
-          return body as Registry
+          registryCache = body as Registry
+          return registryCache
         }
+        registryCache = DEFAULT_FALLBACK
         return DEFAULT_FALLBACK
       } catch {
+        registryCache = DEFAULT_FALLBACK
         return DEFAULT_FALLBACK
       }
     })()
@@ -68,18 +75,18 @@ export const findModel = (reg: Registry, id: string): ModelOption | undefined =>
   flattenModels(reg).find((m) => m.id === id)
 
 /**
- * Resolve which model to send. Order of precedence:
- *   1. explicit user selection in settings
- *   2. hard fallback (free Gemini)
- * Refuses paid models unless allowPaidProviders is on — same rule as the Worker gate.
+ * Resolve saved selections against the server registry.
+ * Paid models fall back to a free model unless the user opted in.
  */
 export const resolveModel = (requested?: string): string => {
-  const settings = useSettings.getState()
-  const preferred = requested ?? settings.model ?? 'gemini-flash-lite-latest'
-  // We don't have synchronous tier info here; trust the Worker to reject.
-  // But if the flag is off and the id looks paid by convention, downgrade.
-  if (!settings.allowPaidProviders && /^deepseek-/.test(preferred)) {
+  const preferred = requested ?? useSettings.getState().model ?? 'gemini-flash-lite-latest'
+  const models = registryCache ? flattenModels(registryCache) : flattenModels(DEFAULT_FALLBACK)
+  const match = models.find((model) => model.id === preferred)
+  if (!match) {
     return 'gemini-flash-lite-latest'
   }
-  return preferred
+  if (match.tier === 'paid' && !useSettings.getState().allowPaidProviders) {
+    return 'gemini-flash-lite-latest'
+  }
+  return match.id
 }

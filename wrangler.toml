@@ -4,3 +4,5 @@ compatibility_date = "2026-11-25"
 
 [vars]
 ALLOWED_ORIGIN = "https://deepseek-chat-iota.vercel.app"
+SUPABASE_URL = "https://jdjqmcykbajbpqqcupev.supabase.co"
+SUPABASE_PUBLISHABLE_KEY = "sb_publishable_AOi7HxT0GMIdpxH1qU4jVQ_d2Fcy0be"

@@ -4,7 +4,11 @@
  * 声明 deepseek_web_search / deepseek_read_url 或设置 safety_check.level 为 high 时进入扩展模式。
  */
 
-export type ChatModel = 'gemini-flash-lite-latest' | 'gemini-2.5-flash' | 'deepseek-flash' | 'deepseek-v4-pro'
+export type ChatModel =
+  | 'gemini-flash-lite-latest'
+  | 'gemini-2.5-flash'
+  | 'deepseek-chat'
+  | 'deepseek-reasoner'
 
 // ---------- 响应：内容块 ----------
 

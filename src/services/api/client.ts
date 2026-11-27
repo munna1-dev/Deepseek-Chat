@@ -1,5 +1,6 @@
 import { translate, type TranslationMessage } from '../../i18n/index.js'
 import { useSettings } from '../settings.js'
+import { supabase } from '../supabase.js'
 import { resizeUploadImage } from '../../utils/resizeUploadImage.js'
 import { readMessageEvent } from './parseEvent.js'
 import { readServerSentEvents } from './sse.js'
@@ -8,7 +9,7 @@ import type {
   CreateMessageRequest,
   FileObject,
   FilePurpose,
-  MessageStreamEvent, ChatModel } from './types.js'
+  MessageStreamEvent } from './types.js'
 
 /** Gemini Worker proxy address; local development uses the local Worker. */
 export const API_ORIGIN = __API_ORIGIN__
@@ -67,8 +68,26 @@ const readErrorResponse = async (
 
 export const request = async (url: string, init: RequestInit): Promise<Response> => {
   let response: Response
+  const headers = new Headers(init.headers)
+
+  // Attach the signed-in Supabase user's access token to Worker API calls.
   try {
-    response = await fetch(url, init)
+    if (API_ORIGIN && new URL(url).origin === new URL(API_ORIGIN).origin) {
+      const { data, error } = await supabase.auth.getSession()
+      if (error) { throw error }
+      if (data.session?.access_token) {
+        headers.set('Authorization', `Bearer ${data.session.access_token}`)
+      }
+    }
+  } catch (error) {
+    throw new ApiError(
+      'http',
+      error instanceof Error ? error.message : 'Unable to read your sign-in session.'
+    )
+  }
+
+  try {
+    response = await fetch(url, { ...init, headers })
   } catch (error) {
     if (init.signal?.aborted) {
       throw error
@@ -81,23 +100,6 @@ export const request = async (url: string, init: RequestInit): Promise<Response>
   return response
 }
 
-/** Models classified as paid by the Worker registry. Kept here only for fast-fail UX. */
-const PAID_MODELS = new Set<ChatModel>(['deepseek-flash', 'deepseek-v4-pro'])
-
-/** Reject paid models before they reach the network unless the user opted in. */
-const assertModelAllowed = (model: ChatModel): void => {
-  if (!PAID_MODELS.has(model)) return
-  if (useSettings.getState().allowPaidProviders) return
-  throw new ApiError(
-    'http',
-    'Model ' + model + ' is a paid provider. Enable "Allow paid providers" in Settings to use it.',
-    422
-  )
-}
-
-/** Opt-in header; Worker refuses paid models without it. */
-const costHeaders = (): Record<string, string> =>
-  useSettings.getState().allowPaidProviders ? { 'x-allow-paid': '1' } : {}
 
 const anthropicHeaders = (apiKey: string, beta = false): Record<string, string> => {
   void apiKey
@@ -162,15 +164,14 @@ export async function* streamMessage(
   body: CreateMessageRequest,
   signal: AbortSignal
 ): AsyncGenerator<MessageStreamEvent> {
-  assertModelAllowed(body.model)
 
   const response = await request(`${ANTHROPIC_BASE_URL}/messages`, {
     method: 'POST',
     headers: {
       ...anthropicHeaders(apiKey, hasFile(body)),
-      ...costHeaders(),
       'Content-Type': 'application/json',
       Accept: 'text/event-stream',
+      ...(useSettings.getState().allowPaidProviders ? { 'x-allow-paid': '1' } : {}),
     },
     body: JSON.stringify({ ...body, stream: true }),
     signal,

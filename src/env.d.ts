@@ -13,3 +13,6 @@ declare module 'prismjs/components/*' {}
 
 /** KaTeX 化学公式扩展通过副作用注册到 KaTeX */
 declare module 'katex/contrib/mhchem' {}
+
+declare const __SUPABASE_URL__: string
+declare const __SUPABASE_PUBLISHABLE_KEY__: string

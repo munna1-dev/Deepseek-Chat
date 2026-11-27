@@ -1,7 +1,7 @@
 export const corsHeaders = (origin: string): Record<string, string> => ({
   'Access-Control-Allow-Origin': origin,
   'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
-  'Access-Control-Allow-Headers': 'Accept, Content-Type, Anthropic-Beta, X-Requested-With, x-allow-paid',
+  'Access-Control-Allow-Headers': 'Accept, Authorization, Content-Type, Anthropic-Beta, X-Requested-With, X-Allow-Paid',
   'Access-Control-Max-Age': '86400',
   Vary: 'Origin',
 })

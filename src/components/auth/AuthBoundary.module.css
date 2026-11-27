@@ -1,0 +1,11 @@
+
+.loading {
+  position: fixed; inset: 0; display: grid; place-items: center;
+  background: #071522; color: #a8c2d3; font: 14px system-ui;
+}
+.signOut {
+  position: fixed; z-index: 900; right: 16px; top: 12px;
+  border: 1px solid #7895aa55; border-radius: 8px;
+  background: #102a43; color: white; padding: 8px 12px;
+  font-size: 12px; cursor: pointer;
+}

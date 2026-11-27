@@ -24,6 +24,7 @@ import {
   setLocation,
   setThemePreference,
   setTtsVoice,
+  setAllowPaidProviders,
   useSettings,
   type ThemePreference,
 } from '../../services/settings.js'
@@ -33,7 +34,6 @@ import { Modal } from '../base/Modal.js'
 import { Select } from '../base/Select.js'
 import { showToast } from '../base/toastState.js'
 import { closeSettings, useSettingsDialog, type SettingsSection } from './settingsDialogState.js'
-import { setAllowPaidProviders } from '../../services/settings.js'
 import styles from './Settings.module.css'
 
 /**
@@ -102,7 +102,7 @@ const SettingsContent = ({
               <LocaleSetting />
               <TtsVoiceSetting />
               <LocationSetting />
-              <AllowPaidProvidersSetting />
+              <PaidProvidersSetting />
             </>
           ) : (
             <>
@@ -604,25 +604,25 @@ const ExportHistory = ({ disabled }: { disabled: boolean }) => {
   )
 }
 
-/** Toggles whether paid providers may be called. Off by default. */
-const AllowPaidProvidersSetting = () => {
-  const allowPaidProviders = useSettings((state) => state.allowPaidProviders)
+/** Explicit opt-in for paid provider APIs. */
+const PaidProvidersSetting = () => {
+  const t = useTranslate()
+  const enabled = useSettings((state) => state.allowPaidProviders)
+
   return (
     <SettingCell
-      label="Allow paid providers"
+      label={t('settingsPaidProviders')}
+      description={t('settingsPaidProvidersDescription')}
       status={null}
-      description={
-        allowPaidProviders
-          ? 'Enabled — paid models may be called'
-          : 'Disabled — free models only'
-      }
       action={
         <Button
           variant="outlined"
           size="m"
-          onClick={() => setAllowPaidProviders(!allowPaidProviders)}
+          className={styles.cellButton}
+          aria-pressed={enabled}
+          onClick={() => setAllowPaidProviders(!enabled)}
         >
-          {allowPaidProviders ? 'Disable' : 'Enable'}
+          {t(enabled ? 'settingsPaidProvidersDisable' : 'settingsPaidProvidersEnable')}
         </Button>
       }
     />

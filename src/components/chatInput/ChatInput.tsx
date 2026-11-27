@@ -1,4 +1,3 @@
-import { ImageGenerator } from "./ImageGenerator.js";
 import clsx from 'clsx'
 import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import {
@@ -59,7 +58,6 @@ const Input = ({ sessionId }: { sessionId: string | null }) => {
   const imageInputRef = useRef<HTMLInputElement>(null)
   const cameraInputRef = useRef<HTMLInputElement>(null)
   const [plusMenuOpen, setPlusMenuOpen] = useState(false)
-  const [imageGeneratorOpen, setImageGeneratorOpen] = useState(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const togglesRef = useRef<HTMLDivElement>(null)
 
@@ -204,7 +202,7 @@ const Input = ({ sessionId }: { sessionId: string | null }) => {
             role="menuitem"
             onClick={() => {
               setPlusMenuOpen(false)
-              if (ensureApiKey()) imageInputRef.current?.click()
+              if (ensureApiKey()) { imageInputRef.current?.click(); }
             }}
           >
             <span className={styles.plusMenuIcon}>▧</span>
@@ -216,7 +214,7 @@ const Input = ({ sessionId }: { sessionId: string | null }) => {
             role="menuitem"
             onClick={() => {
               setPlusMenuOpen(false)
-              if (ensureApiKey()) cameraInputRef.current?.click()
+              if (ensureApiKey()) { cameraInputRef.current?.click(); }
             }}
           >
             <span className={styles.plusMenuIcon}>◎</span>
@@ -228,7 +226,7 @@ const Input = ({ sessionId }: { sessionId: string | null }) => {
             role="menuitem"
             onClick={() => {
               setPlusMenuOpen(false)
-              if (ensureApiKey()) fileInputRef.current?.click()
+              if (ensureApiKey()) { fileInputRef.current?.click(); }
             }}
           >
             <span className={styles.plusMenuIcon}>⌁</span>
@@ -245,18 +243,6 @@ const Input = ({ sessionId }: { sessionId: string | null }) => {
           >
             <span className={styles.plusMenuIcon}>⌖</span>
             <span><strong>Share location</strong><small>Add your current location to the message</small></span>
-          </button>
-          <button
-            type="button"
-            className={styles.plusMenuItem}
-            role="menuitem"
-            onClick={() => {
-              setPlusMenuOpen(false)
-              setImageGeneratorOpen(true)
-            }}
-          >
-            <span className={styles.plusMenuIcon}>✧</span>
-            <span><strong>Create image</strong><small>Generate an image with AI</small></span>
           </button>
         </div>
       ) : null}
@@ -421,10 +407,6 @@ const Input = ({ sessionId }: { sessionId: string | null }) => {
         </div>
       </div>
       {dragging ? <DragMask /> : null}
-      <ImageGenerator
-        open={imageGeneratorOpen}
-        onClose={() => setImageGeneratorOpen(false)}
-      />
 </div>
   )
 }

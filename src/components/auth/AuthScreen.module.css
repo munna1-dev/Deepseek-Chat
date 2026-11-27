@@ -1,0 +1,543 @@
+.page {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: grid;
+  place-items: center;
+  overflow: auto;
+  padding: 34px;
+  box-sizing: border-box;
+  background:
+    radial-gradient(ellipse at 50% 5%, #e1eaff 0, transparent 48%),
+    #f3f6ff;
+  color: #17243b;
+  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+}
+
+.authCard {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(390px, 0.94fr);
+  width: min(1120px, 100%);
+  min-height: min(690px, calc(100vh - 68px));
+  overflow: hidden;
+  border: 1px solid #e8edf6;
+  border-radius: 17px;
+  background: #fff;
+  box-shadow: 0 24px 80px #243e7020;
+}
+
+.visualPanel {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  isolation: isolate;
+  overflow: hidden;
+  margin: 22px;
+  padding: 36px;
+  border-radius: 12px;
+  color: #fff;
+  background: linear-gradient(145deg, #0876dc 0%, #3159e9 54%, #5148e8 100%);
+}
+
+.visualPanel::before,
+.visualPanel::after {
+  position: absolute;
+  z-index: -1;
+  content: "";
+  pointer-events: none;
+}
+
+.visualPanel::before {
+  inset: 0;
+  background:
+    radial-gradient(ellipse at 15% 18%, #64c9ff70, transparent 42%),
+    radial-gradient(ellipse at 95% 75%, #7c83ff55, transparent 45%);
+}
+
+.visualPanel::after {
+  width: 150%;
+  height: 65%;
+  left: -22%;
+  bottom: 13%;
+  border: 1px solid #ffffff30;
+  border-radius: 48% 52% 0 0;
+  transform: rotate(-13deg);
+  box-shadow:
+    0 -14px 0 -13px #ffffff70,
+    0 -31px 0 -30px #ffffff55,
+    0 -49px 0 -48px #ffffff40,
+    0 -68px 0 -67px #ffffff35,
+    0 -88px 0 -87px #ffffff25;
+}
+
+.visualBrand,
+.formBrand,
+.mobileBrand {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  font-weight: 750;
+}
+
+.visualBrand {
+  position: relative;
+  z-index: 2;
+  font-size: 17px;
+}
+
+.visualLogo,
+.mobileLogo,
+.brandMark {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  font-size: 19px;
+  font-weight: 800;
+}
+
+.visualLogo {
+  color: #2858d9;
+  background: #fff;
+}
+
+.visualMain {
+  position: relative;
+  z-index: 2;
+  max-width: 430px;
+  margin: auto 0;
+  padding: 55px 0;
+}
+
+.visualEyebrow,
+.eyebrow {
+  font-size: 10px;
+  font-weight: 750;
+  letter-spacing: 1.7px;
+}
+
+.visualEyebrow {
+  color: #d7e8ff;
+}
+
+.visualMain h1 {
+  margin: 18px 0;
+  font-size: clamp(36px, 4vw, 53px);
+  line-height: 1.12;
+  letter-spacing: -2px;
+}
+
+.visualMain p,
+.visualBottom p {
+  max-width: 350px;
+  color: #e0eaff;
+  font-size: 14px;
+  line-height: 1.8;
+}
+
+.visualBottom {
+  position: relative;
+  z-index: 2;
+}
+
+.visualBottom h2 {
+  margin: 0 0 7px;
+  font-size: 19px;
+  letter-spacing: -.4px;
+}
+
+.visualBottom p {
+  margin: 0;
+  font-size: 12px;
+}
+
+.slideDots {
+  display: flex;
+  gap: 6px;
+  margin-top: 24px;
+}
+
+.slideDots span {
+  width: 6px;
+  height: 6px;
+  border-radius: 10px;
+  background: #ffffff75;
+}
+
+.slideDots .activeDot {
+  width: 20px;
+  background: #fff;
+}
+
+.wave {
+  position: absolute;
+  z-index: 1;
+  width: 150%;
+  height: 100px;
+  left: -20%;
+  bottom: 30%;
+  border: 1px solid #ffffff35;
+  border-radius: 50%;
+  transform: rotate(-18deg);
+  pointer-events: none;
+}
+
+.waveTwo {
+  bottom: 24%;
+  transform: rotate(-14deg);
+  opacity: .7;
+}
+
+.waveThree {
+  bottom: 18%;
+  transform: rotate(-10deg);
+  opacity: .5;
+}
+
+.formPanel {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-width: 0;
+  padding: 46px clamp(32px, 6vw, 76px) 24px;
+}
+
+.formContent {
+  width: 100%;
+  max-width: 390px;
+  margin: auto;
+}
+
+.formBrand {
+  gap: 9px;
+  margin-bottom: 34px;
+  color: #24324a;
+  font-size: 14px;
+}
+
+.brandMark {
+  width: 25px;
+  height: 25px;
+  border-radius: 7px;
+  color: #fff;
+  background: linear-gradient(135deg, #286ee9, #514be8);
+  font-size: 14px;
+}
+
+.tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  padding: 4px;
+  margin-bottom: 30px;
+  border-radius: 9px;
+  background: #f0f2f8;
+}
+
+.tabs button {
+  min-height: 39px;
+  border: 0;
+  border-radius: 7px;
+  color: #78839a;
+  background: transparent;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.tabs button.activeTab {
+  color: #fff;
+  background: linear-gradient(100deg, #4267ed, #514fe8);
+  box-shadow: 0 3px 9px #425ee733;
+}
+
+.heading {
+  margin-bottom: 25px;
+}
+
+.eyebrow {
+  color: #687fe3;
+}
+
+.heading h2 {
+  margin: 10px 0 7px;
+  color: #19263e;
+  font-size: clamp(23px, 2.5vw, 29px);
+  letter-spacing: -.9px;
+}
+
+.heading p {
+  margin: 0;
+  color: #8791a4;
+  font-size: 12px;
+  line-height: 1.7;
+}
+
+.form {
+  display: grid;
+  gap: 17px;
+}
+
+.form label {
+  display: grid;
+  gap: 8px;
+  color: #3e4b61;
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.form input {
+  box-sizing: border-box;
+  width: 100%;
+  height: 44px;
+  padding: 0 13px;
+  border: 1px solid #dce2ed;
+  border-radius: 7px;
+  outline: none;
+  color: #1d2a40;
+  background: #fff;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 400;
+  transition: border-color .15s, box-shadow .15s;
+}
+
+.form input:focus {
+  border-color: #5475ec;
+  box-shadow: 0 0 0 3px #5475ec18;
+}
+
+.form input::placeholder {
+  color: #aab2c0;
+}
+
+.passwordLabel {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.forgot,
+.back {
+  padding: 0;
+  border: 0;
+  color: #536de0;
+  background: transparent;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.submit {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 46px;
+  padding: 0 16px;
+  margin-top: 5px;
+  border: 0;
+  border-radius: 7px;
+  color: #fff;
+  background: linear-gradient(100deg, #4267ed, #514be8);
+  box-shadow: 0 5px 13px #4b61e52b;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.submit:disabled {
+  opacity: .6;
+  cursor: wait;
+}
+
+.submit span {
+  font-size: 18px;
+}
+
+.switchText {
+  margin: 22px 0 0;
+  color: #8a94a6;
+  text-align: center;
+  font-size: 11px;
+}
+
+.switchText button {
+  padding: 0;
+  border: 0;
+  color: #4d67df;
+  background: transparent;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.securityNote {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  margin-top: 28px;
+  color: #9aa3b2;
+  font-size: 10px;
+  text-align: center;
+}
+
+.lockIcon {
+  color: #6078df;
+  font-size: 16px;
+}
+
+.error,
+.success {
+  padding: 11px;
+  border-radius: 7px;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.error {
+  color: #a62e3b;
+  background: #fff0f1;
+}
+
+.success {
+  color: #18794e;
+  background: #eaf8f0;
+}
+
+.back {
+  margin-bottom: 27px;
+}
+
+.footer {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding-top: 24px;
+  color: #a0a8b7;
+  font-size: 8px;
+  letter-spacing: 1px;
+}
+
+.mobileBrand {
+  display: none;
+}
+
+@media (max-width: 760px) {
+  .page {
+    display: block;
+    padding: 14px;
+    background: #f3f6ff;
+  }
+
+  .authCard {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    min-height: calc(100dvh - 28px);
+    border-radius: 14px;
+  }
+
+  .visualPanel {
+    min-height: 210px;
+    margin: 12px 12px 0;
+    padding: 20px 22px;
+  }
+
+  .visualBrand {
+    font-size: 14px;
+  }
+
+  .visualLogo {
+    width: 29px;
+    height: 29px;
+  }
+
+  .visualMain {
+    padding: 24px 0 10px;
+  }
+
+  .visualMain h1 {
+    margin: 8px 0;
+    font-size: 29px;
+    letter-spacing: -1px;
+  }
+
+  .visualMain p {
+    max-width: 300px;
+    margin: 0;
+    font-size: 11px;
+    line-height: 1.6;
+  }
+
+  .visualBottom {
+    display: none;
+  }
+
+  .wave {
+    bottom: 15%;
+  }
+
+  .waveTwo {
+    bottom: 9%;
+  }
+
+  .waveThree {
+    bottom: 3%;
+  }
+
+  .formPanel {
+    flex: 1;
+    padding: 25px 23px 18px;
+  }
+
+  .formContent {
+    max-width: 430px;
+  }
+
+  .formBrand {
+    margin-bottom: 23px;
+  }
+
+  .tabs {
+    margin-bottom: 23px;
+  }
+
+  .heading {
+    margin-bottom: 21px;
+  }
+
+  .heading h2 {
+    font-size: 24px;
+  }
+
+  .footer {
+    padding-top: 18px;
+    font-size: 7px;
+  }
+}
+
+@media (max-width: 380px) {
+  .page {
+    padding: 8px;
+  }
+
+  .authCard {
+    min-height: calc(100dvh - 16px);
+  }
+
+  .visualPanel {
+    min-height: 185px;
+  }
+
+  .formPanel {
+    padding-right: 18px;
+    padding-left: 18px;
+  }
+}
