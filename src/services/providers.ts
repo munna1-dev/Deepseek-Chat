@@ -28,9 +28,32 @@ let registryCache: Registry | null = null
 const DEFAULT_FALLBACK: Registry = {
   providers: [
     {
+      id: 'cloudflare',
+      label: 'Cloudflare Workers AI',
+      models: [
+        { id: 'cloudflare-gpt-oss-20b', label: 'GPT OSS 20B · Cloudflare', tier: 'free' },
+      ],
+    },
+    {
       id: 'gemini',
       label: 'Google Gemini',
-      models: [{ id: 'gemini-flash-lite-latest', label: 'Gemini Flash Lite', tier: 'free' }],
+      models: [
+        { id: 'gemini-flash-lite-latest', label: 'Gemini Flash Lite', tier: 'free' },
+        { id: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash', tier: 'free' },
+      ],
+    },
+    {
+      id: 'deepseek',
+      label: 'DeepSeek',
+      models: [
+        { id: 'deepseek-chat', label: 'DeepSeek Chat', tier: 'free' },
+        { id: 'deepseek-reasoner', label: 'DeepSeek Reasoner', tier: 'free' },
+      ],
+    },
+    {
+      id: 'grok',
+      label: 'xAI Grok',
+      models: [{ id: 'grok-4.7', label: 'Grok 4.7', tier: 'free' }],
     },
   ],
 }

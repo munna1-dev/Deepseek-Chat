@@ -54,6 +54,10 @@ const Input = ({ sessionId }: { sessionId: string | null }) => {
   const importingHistory = useChatStore((state) => state.importingHistory)
   const isMobile = useIsMobile()
   const search = useSettings((state) => state.search)
+  const selectedModel = useSettings((state) => state.model)
+  const limitedModelSelected =
+    selectedModel === 'grok-4.7' ||
+    selectedModel === 'cloudflare-gpt-oss-20b'
   const fileInputRef = useRef<HTMLInputElement>(null)
   const imageInputRef = useRef<HTMLInputElement>(null)
   const cameraInputRef = useRef<HTMLInputElement>(null)
@@ -307,7 +311,10 @@ const Input = ({ sessionId }: { sessionId: string | null }) => {
               className={clsx(styles.toggle, search && styles.selected)}
               aria-label={t('search')}
               aria-pressed={search}
-              onClick={() => setSearch(!search)}
+              disabled={limitedModelSelected}
+              onClick={() => {
+                if (!limitedModelSelected) { setSearch(!search) }
+              }}
             >
               <IconGlobeLanguageOutline14 />
               <span className={styles.toggleLabel}>{t('search')}</span>

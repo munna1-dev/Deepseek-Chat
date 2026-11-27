@@ -9,6 +9,8 @@ export type ChatModel =
   | 'gemini-2.5-flash'
   | 'deepseek-chat'
   | 'deepseek-reasoner'
+  | 'grok-4.7'
+  | 'cloudflare-gpt-oss-20b'
 
 // ---------- 响应：内容块 ----------
 

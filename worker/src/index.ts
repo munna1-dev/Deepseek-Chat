@@ -1,5 +1,9 @@
 import { corsHeaders, json, jsonOk } from './lib/http.js'
+import { handleMediaRequest } from './media.js'
 import { PROVIDERS, providerOf, tierOf } from './registry.js'
+import { forwardToDeepSeek } from './providers/deepseek.js'
+import { forwardToGrok } from './providers/grok.js'
+import { forwardToCloudflare } from './providers/cloudflare.js'
 import {
   bytesToBase64,
   convertMessages,
@@ -9,12 +13,69 @@ import {
 } from './providers/gemini.js'
 
 export interface Env {
+  AI?: {
+    run(model: string, inputs: Record<string, unknown>): Promise<ReadableStream<Uint8Array>>
+  }
   GEMINI_API_KEY?: string
-  GEMINI_MODEL?: string
   DEEPSEEK_API_KEY?: string
+  XAI_API_KEY?: string
+  GEMINI_MODEL?: string
   SUPABASE_URL?: string
   SUPABASE_PUBLISHABLE_KEY?: string
+  SUPABASE_SERVICE_ROLE_KEY?: string
+  FAL_KEY?: string
   ALLOWED_ORIGIN: string
+}
+
+/** Authenticate a Supabase user and return their immutable Auth user ID. */
+const getAuthenticatedUserId = async (
+  request: Request,
+  env: Env
+): Promise<string | Response> => {
+  const authorization = request.headers.get('Authorization') || ''
+  const match = authorization.match(/^Bearer\s+(.+)$/i)
+
+  if (!match) {
+    return json('Sign in is required to use this endpoint.', 401, env.ALLOWED_ORIGIN)
+  }
+
+  if (!env.SUPABASE_URL || !env.SUPABASE_PUBLISHABLE_KEY) {
+    return json('Authentication is not configured on the API server.', 503, env.ALLOWED_ORIGIN)
+  }
+
+  try {
+    const response = await fetch(
+      `${env.SUPABASE_URL.replace(/\/$/, '')}/auth/v1/user`,
+      {
+        headers: {
+          apikey: env.SUPABASE_PUBLISHABLE_KEY,
+          Authorization: `Bearer ${match[1]}`,
+        },
+        signal: request.signal,
+      }
+    )
+
+    if (response.status === 401 || response.status === 403) {
+      return json('Your sign-in session is invalid or expired.', 401, env.ALLOWED_ORIGIN)
+    }
+    if (!response.ok) {
+      return json('Unable to verify your sign-in session.', 503, env.ALLOWED_ORIGIN)
+    }
+
+    const user = await response.json() as { id?: unknown }
+    if (typeof user.id !== 'string' ||
+        !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(user.id)) {
+      return json('Supabase returned an invalid user session.', 401, env.ALLOWED_ORIGIN)
+    }
+
+    return user.id
+  } catch {
+    return json(
+      request.signal.aborted ? 'Request was cancelled.' : 'Unable to reach Supabase authentication.',
+      request.signal.aborted ? 499 : 503,
+      env.ALLOWED_ORIGIN
+    )
+  }
 }
 
 const DEFAULT_MODEL = 'gemini-flash-lite-latest'
@@ -188,6 +249,14 @@ export default {
     }
 
 
+    // ---- Authenticated Media API ----
+    if (url.pathname.startsWith('/media/v1/')) {
+      const userId = await getAuthenticatedUserId(request, env)
+      if (userId instanceof Response) return userId
+
+      return handleMediaRequest(request, env, userId, url)
+    }
+
     // ---- Chat ----
     if (url.pathname !== '/anthropic/v1/messages' || request.method !== 'POST') {
       return json('Endpoint or method not allowed', 404, env.ALLOWED_ORIGIN)
@@ -217,6 +286,22 @@ export default {
 
     if (tier === 'paid' && request.headers.get('x-allow-paid') !== '1') {
       return json('Paid provider consent is required for this model.', 403, env.ALLOWED_ORIGIN)
+    }
+
+    if (provider === 'cloudflare') {
+      return forwardToCloudflare(request, body, env)
+    }
+
+    if (provider === 'deepseek') {
+      return forwardToDeepSeek(request, body, env)
+    }
+
+    if (provider === 'grok') {
+      return forwardToGrok(request, body, env)
+    }
+
+    if (provider !== 'gemini') {
+      return json('Unsupported provider.', 400, env.ALLOWED_ORIGIN)
     }
 
     if (!env.GEMINI_API_KEY) {

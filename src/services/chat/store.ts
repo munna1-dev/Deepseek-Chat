@@ -3,7 +3,7 @@ import { getAbortReason, throwIfAborted } from '../../utils/abort.js'
 import { createId } from '../../utils/id.js'
 import { ApiError, streamMessage } from '../api/client.js'
 import type { ChatModel, CreateMessageRequest } from '../api/types.js'
-import { resolveModel } from '../providers.js'
+import { loadProviders, resolveModel } from '../providers.js'
 import { extractFileIds, getFileErrorCode, isRetryableApiError } from '../api/errors.js'
 import {
   cancelUpload,
@@ -303,6 +303,8 @@ export const initChat = (): Promise<void> => {
   set({ initError: false })
   initTask = (async () => {
     try {
+      // Load the authoritative model registry before enabling chat.
+      await loadProviders()
       const summaries = await db.loadSessionSummaries()
       if (epoch === historyEpoch) {
         set({ ready: true, sessions: sortSessions(summaries) })
@@ -1018,15 +1020,21 @@ const streamReply = async (sessionId: string, initial: AssistantMessage, request
           initial.thinking ?? false,
           latestReminder
         )
+        const resolvedModel = resolveModel(initial.model ?? undefined) as ChatModel
         const events = streamMessage(
           useSettings.getState().apiKey ?? '',
           {
-            model: resolveModel(initial.model ?? undefined) as ChatModel,
+            model: resolvedModel,
             system: SYSTEM_PROMPT,
             messages,
             thinking: { type: initial.thinking ? 'enabled' : 'disabled' },
             safety_check: SAFETY_CHECK,
-            tools: serverTools(initial.search ?? false),
+            tools: serverTools(
+              resolvedModel === 'grok-4.7' ||
+              resolvedModel === 'cloudflare-gpt-oss-20b'
+                ? false
+                : (initial.search ?? false)
+            ),
             ...(titleRequests.has(controller) ? { title: { enabled: true } } : {}),
           },
           controller.signal
