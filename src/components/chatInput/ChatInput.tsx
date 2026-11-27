@@ -1,6 +1,6 @@
 import { ImageGenerator } from "./ImageGenerator.js";
 import clsx from 'clsx'
-import { memo, useCallback, useEffect, useLayoutEffect, useRef } from 'react'
+import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import {
   IconGlobeLanguageOutline14,
   IconPaperclipOutline16,
@@ -56,6 +56,10 @@ const Input = ({ sessionId }: { sessionId: string | null }) => {
   const isMobile = useIsMobile()
   const search = useSettings((state) => state.search)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const imageInputRef = useRef<HTMLInputElement>(null)
+  const cameraInputRef = useRef<HTMLInputElement>(null)
+  const [plusMenuOpen, setPlusMenuOpen] = useState(false)
+  const [imageGeneratorOpen, setImageGeneratorOpen] = useState(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const togglesRef = useRef<HTMLDivElement>(null)
 
@@ -85,6 +89,35 @@ const Input = ({ sessionId }: { sessionId: string | null }) => {
       showToast(error)
     }
   }
+  const shareLocation = () => {
+    if (!navigator.geolocation) {
+      showToast('Location sharing is not supported by this browser.')
+      return
+    }
+
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        const latitude = position.coords.latitude.toFixed(6)
+        const longitude = position.coords.longitude.toFixed(6)
+        const link = `https://maps.google.com/?q=${latitude},${longitude}`
+        const currentText = getDraft(sessionId).text
+        const message = `My current location: ${link}`
+        setText(currentText ? `${currentText}\\n${message}` : message)
+        showToast('Location added to your message.')
+      },
+      (error) => {
+        if (error.code === 1) {
+          showToast('Location permission was denied. Allow location access and try again.')
+        } else if (error.code === 3) {
+          showToast('Location request timed out. Please try again.')
+        } else {
+          showToast('Unable to determine your location. Please try again.')
+        }
+      },
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+    )
+  }
+
   const retryFile = useCallback(
     (id: string) => {
       if (!useChatStore.getState().importingHistory && ensureApiKey()) {
@@ -163,6 +196,71 @@ const Input = ({ sessionId }: { sessionId: string | null }) => {
         }
       }}
     >
+      {plusMenuOpen ? (
+        <div className={styles.plusMenu} role="menu" aria-label="Add to message">
+          <button
+            type="button"
+            className={styles.plusMenuItem}
+            role="menuitem"
+            onClick={() => {
+              setPlusMenuOpen(false)
+              if (ensureApiKey()) imageInputRef.current?.click()
+            }}
+          >
+            <span className={styles.plusMenuIcon}>▧</span>
+            <span><strong>Photos</strong><small>Choose images from your device</small></span>
+          </button>
+          <button
+            type="button"
+            className={styles.plusMenuItem}
+            role="menuitem"
+            onClick={() => {
+              setPlusMenuOpen(false)
+              if (ensureApiKey()) cameraInputRef.current?.click()
+            }}
+          >
+            <span className={styles.plusMenuIcon}>◎</span>
+            <span><strong>Take photo</strong><small>Open your device camera</small></span>
+          </button>
+          <button
+            type="button"
+            className={styles.plusMenuItem}
+            role="menuitem"
+            onClick={() => {
+              setPlusMenuOpen(false)
+              if (ensureApiKey()) fileInputRef.current?.click()
+            }}
+          >
+            <span className={styles.plusMenuIcon}>⌁</span>
+            <span><strong>Files</strong><small>Attach documents and files</small></span>
+          </button>
+          <button
+            type="button"
+            className={styles.plusMenuItem}
+            role="menuitem"
+            onClick={() => {
+              setPlusMenuOpen(false)
+              shareLocation()
+            }}
+          >
+            <span className={styles.plusMenuIcon}>⌖</span>
+            <span><strong>Share location</strong><small>Add your current location to the message</small></span>
+          </button>
+          <button
+            type="button"
+            className={styles.plusMenuItem}
+            role="menuitem"
+            onClick={() => {
+              setPlusMenuOpen(false)
+              setImageGeneratorOpen(true)
+            }}
+          >
+            <span className={styles.plusMenuIcon}>✧</span>
+            <span><strong>Create image</strong><small>Generate an image with AI</small></span>
+          </button>
+        </div>
+      ) : null}
+
       <DraftAttachments items={attachments} onRetry={retryFile} onRemove={removeFile} />
       <div className={styles.textareaWrapper}>
         <textarea
@@ -230,6 +328,18 @@ const Input = ({ sessionId }: { sessionId: string | null }) => {
             </button>
           </Tooltip>
         </div>
+        <div className={styles.leftActions}>
+          <button
+            type="button"
+            className={styles.plusButton}
+            aria-label="Open attachment menu"
+            aria-expanded={plusMenuOpen}
+            onClick={() => setPlusMenuOpen(value => !value)}
+            disabled={importingHistory}
+          >
+            {plusMenuOpen ? "×" : "+"}
+          </button>
+        </div>
         <div className={styles.right}>
           <VoiceButton
             status={voice.status}
@@ -263,6 +373,28 @@ const Input = ({ sessionId }: { sessionId: string | null }) => {
               event.target.value = ''
             }}
           />
+          <input
+            ref={imageInputRef}
+            type="file"
+            accept="image/*"
+            multiple
+            hidden
+            onChange={(event) => {
+              acceptFiles(Array.from(event.target.files ?? []))
+              event.target.value = ''
+            }}
+          />
+          <input
+            ref={cameraInputRef}
+            type="file"
+            accept="image/*"
+            capture="environment"
+            hidden
+            onChange={(event) => {
+              acceptFiles(Array.from(event.target.files ?? []))
+              event.target.value = ''
+            }}
+          />
           {streaming && sessionId ? (
             <button
               type="button"
@@ -289,7 +421,10 @@ const Input = ({ sessionId }: { sessionId: string | null }) => {
         </div>
       </div>
       {dragging ? <DragMask /> : null}
-      <ImageGenerator />
+      <ImageGenerator
+        open={imageGeneratorOpen}
+        onClose={() => setImageGeneratorOpen(false)}
+      />
 </div>
   )
 }
